@@ -1,0 +1,4975 @@
+user
+
+                You are code assistant for writing code for Spring boot application.
+                Consider to give all necessary code for a new application, and use Gradle build tool.
+                Include the package name, file location considering the following project source code packages under the main package com.um.springbootprojstructure: config, controller, dto, entity, mapper, repository, service. with application.properties file.
+                
+user
+You are coding assesstent to build a Java Spring Boot backend application.
+
+Context:
+- Goal: a user-management module.
+- Use Spring Boot and gradle as the build tool.
+- Use an in-memory database (H2).
+- Dont create any user interface, only use java spring boot to create the spring backend application.
+- Log all prompts and input I gave to u should be logged into a log file under the root folder named ""user-prompt.log"".
+I’ll paste the task set requirements next.
+Lets start with implementing the user entity and services to use them in the next tasks.
+assistant
+Project skeleton + **User entity + service layer** (with H2) and **a prompt logger** that writes to `./user-prompt.log`.
+
+Below are the necessary files with **package names** and **file locations** under the main package:
+`com.um.springbootprojstructure.{config,controller,dto,entity,mapper,repository,service}`.
+
+---
+
+## 1) Gradle build + settings
+
+### `build.gradle` (root)
+```gradle
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '3.3.2'
+    id 'io.spring.dependency-management' version '1.1.6'
+}
+
+group = 'com.um'
+version = '0.0.1-SNAPSHOT'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+    implementation 'org.springframework.boot:spring-boot-starter-validation'
+
+    runtimeOnly 'com.h2database:h2'
+
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}
+```
+
+### `settings.gradle` (root)
+```gradle
+rootProject.name = 'springboot-proj-structure'
+```
+
+---
+
+## 2) Application entry point
+
+### `src/main/java/com/um/springbootprojstructure/SpringbootProjStructureApplication.java`
+```java
+package com.um.springbootprojstructure;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class SpringbootProjStructureApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(SpringbootProjStructureApplication.class, args);
+    }
+}
+```
+
+---
+
+## 3) Configuration: prompt logger to `./user-prompt.log`
+
+You asked: “Log all prompts and input I gave to u … into a log file under the root folder named `user-prompt.log`.”
+
+Since the application cannot literally “see” this chat by itself, the typical implementation is:
+- expose a small internal service that you can call with the prompt text, and
+- log it to `user-prompt.log`.
+
+You can later wire this into controllers/services as you build tasks.
+
+### `src/main/java/com/um/springbootprojstructure/config/UserPromptLoggerConfig.java`
+```java
+package com.um.springbootprojstructure.config;
+
+import org.springframework.context.annotation.Configuration;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+
+@Configuration
+public class UserPromptLoggerConfig {
+
+    public static final Path PROMPT_LOG_PATH = Path.of("user-prompt.log");
+
+    public UserPromptLoggerConfig() throws IOException {
+        // Ensure the file exists at application startup
+        if (!Files.exists(PROMPT_LOG_PATH)) {
+            Files.createFile(PROMPT_LOG_PATH);
+        }
+    }
+
+    public static void appendPrompt(String text) {
+        try {
+            String line = text + System.lineSeparator();
+            Files.writeString(
+                    PROMPT_LOG_PATH,
+                    line,
+                    StandardOpenOption.CREATE,
+                    StandardOpenOption.WRITE,
+                    StandardOpenOption.APPEND
+            );
+        } catch (IOException e) {
+            // Avoid crashing app due to logging file issues
+            System.err.println("Failed to write to user-prompt.log: " + e.getMessage());
+        }
+    }
+}
+```
+
+### `src/main/java/com/um/springbootprojstructure/service/PromptLogService.java`
+```java
+package com.um.springbootprojstructure.service;
+
+import com.um.springbootprojstructure.config.UserPromptLoggerConfig;
+import org.springframework.stereotype.Service;
+
+import java.time.OffsetDateTime;
+
+@Service
+public class PromptLogService {
+
+    public void logPrompt(String promptText) {
+        String entry = "[PROMPT] " + OffsetDateTime.now() + " - " + promptText;
+        UserPromptLoggerConfig.appendPrompt(entry);
+    }
+}
+```
+
+---
+
+## 4) User domain (Entity + Repository)
+
+### `src/main/java/com/um/springbootprojstructure/entity/User.java`
+```java
+package com.um.springbootprojstructure.entity;
+
+import jakarta.persistence.*;
+import java.time.OffsetDateTime;
+
+@Entity
+@Table(name = "users", indexes = {
+        @Index(name = "idx_users_email", columnList = "email", unique = true)
+})
+public class User {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(nullable = false, length = 80)
+    private String firstName;
+
+    @Column(nullable = false, length = 80)
+    private String lastName;
+
+    @Column(nullable = false, unique = true, length = 180)
+    private String email;
+
+    @Column(nullable = false)
+    private boolean active = true;
+
+    @Column(nullable = false, updatable = false)
+    private OffsetDateTime createdAt;
+
+    @Column(nullable = false)
+    private OffsetDateTime updatedAt;
+
+    @PrePersist
+    void prePersist() {
+        OffsetDateTime now = OffsetDateTime.now();
+        this.createdAt = now;
+        this.updatedAt = now;
+    }
+
+    @PreUpdate
+    void preUpdate() {
+        this.updatedAt = OffsetDateTime.now();
+    }
+
+    public User() {}
+
+    public User(Long id, String firstName, String lastName, String email, boolean active) {
+        this.id = id;
+        this.firstName = firstName;
+        this.lastName = lastName;
+        this.email = email;
+        this.active = active;
+    }
+
+    // Getters and setters
+
+    public Long getId() { return id; }
+
+    public void setId(Long id) { this.id = id; }
+
+    public String getFirstName() { return firstName; }
+
+    public void setFirstName(String firstName) { this.firstName = firstName; }
+
+    public String getLastName() { return lastName; }
+
+    public void setLastName(String lastName) { this.lastName = lastName; }
+
+    public String getEmail() { return email; }
+
+    public void setEmail(String email) { this.email = email; }
+
+    public boolean isActive() { return active; }
+
+    public void setActive(boolean active) { this.active = active; }
+
+    public OffsetDateTime getCreatedAt() { return createdAt; }
+
+    public OffsetDateTime getUpdatedAt() { return updatedAt; }
+}
+```
+
+### `src/main/java/com/um/springbootprojstructure/repository/UserRepository.java`
+```java
+package com.um.springbootprojstructure.repository;
+
+import com.um.springbootprojstructure.entity.User;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+import java.util.Optional;
+
+public interface UserRepository extends JpaRepository<User, Long> {
+    Optional<User> findByEmail(String email);
+    boolean existsByEmail(String email);
+}
+```
+
+---
+
+## 5) DTOs + Mapper
+
+### `src/main/java/com/um/springbootprojstructure/dto/UserCreateRequest.java`
+```java
+package com.um.springbootprojstructure.dto;
+
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
+
+public class UserCreateRequest {
+
+    @NotBlank
+    @Size(max = 80)
+    private String firstName;
+
+    @NotBlank
+    @Size(max = 80)
+    private String lastName;
+
+    @NotBlank
+    @Email
+    @Size(max = 180)
+    private String email;
+
+    public UserCreateRequest() {}
+
+    public String getFirstName() { return firstName; }
+    public void setFirstName(String firstName) { this.firstName = firstName; }
+
+    public String getLastName() { return lastName; }
+    public void setLastName(String lastName) { this.lastName = lastName; }
+
+    public String getEmail() { return email; }
+    public void setEmail(String email) { this.email = email; }
+}
+```
+
+### `src/main/java/com/um/springbootprojstructure/dto/UserResponse.java`
+```java
+package com.um.springbootprojstructure.dto;
+
+public class UserResponse {
+    private Long id;
+    private String firstName;
+    private String lastName;
+    private String email;
+    private boolean active;
+
+    public UserResponse() {}
+
+    public UserResponse(Long id, String firstName, String lastName, String email, boolean active) {
+        this.id = id;
+        this.firstName = firstName;
+        this.lastName = lastName;
+        this.email = email;
+        this.active = active;
+    }
+
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+
+    public String getFirstName() { return firstName; }
+    public void setFirstName(String firstName) { this.firstName = firstName; }
+
+    public String getLastName() { return lastName; }
+    public void setLastName(String lastName) { this.lastName = lastName; }
+
+    public String getEmail() { return email; }
+    public void setEmail(String email) { this.email = email; }
+
+    public boolean isActive() { return active; }
+    public void setActive(boolean active) { this.active = active; }
+}
+```
+
+### `src/main/java/com/um/springbootprojstructure/mapper/UserMapper.java`
+```java
+package com.um.springbootprojstructure.mapper;
+
+import com.um.springbootprojstructure.dto.UserCreateRequest;
+import com.um.springbootprojstructure.dto.UserResponse;
+import com.um.springbootprojstructure.entity.User;
+
+public class UserMapper {
+
+    private UserMapper() {}
+
+    public static User toEntity(UserCreateRequest req) {
+        User u = new User();
+        u.setFirstName(req.getFirstName());
+        u.setLastName(req.getLastName());
+        u.setEmail(req.getEmail());
+        u.setActive(true);
+        return u;
+    }
+
+    public static UserResponse toResponse(User u) {
+        return new UserResponse(
+                u.getId(),
+                u.getFirstName(),
+                u.getLastName(),
+                u.getEmail(),
+                u.isActive()
+        );
+    }
+}
+```
+
+---
+
+## 6) Service layer
+
+### `src/main/java/com/um/springbootprojstructure/service/UserService.java`
+```java
+package com.um.springbootprojstructure.service;
+
+import com.um.springbootprojstructure.dto.UserCreateRequest;
+import com.um.springbootprojstructure.dto.UserResponse;
+
+import java.util.List;
+
+public interface UserService {
+    UserResponse createUser(UserCreateRequest request);
+    UserResponse getUserById(Long id);
+    List<UserResponse> listUsers();
+    void deactivateUser(Long id);
+}
+```
+
+### `src/main/java/com/um/springbootprojstructure/service/UserServiceImpl.java`
+```java
+package com.um.springbootprojstructure.service;
+
+import com.um.springbootprojstructure.dto.UserCreateRequest;
+import com.um.springbootprojstructure.dto.UserResponse;
+import com.um.springbootprojstructure.entity.User;
+import com.um.springbootprojstructure.mapper.UserMapper;
+import com.um.springbootprojstructure.repository.UserRepository;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
+
+@Service
+@Transactional
+public class UserServiceImpl implements UserService {
+
+    private final UserRepository userRepository;
+    private final PromptLogService promptLogService;
+
+    public UserServiceImpl(UserRepository userRepository, PromptLogService promptLogService) {
+        this.userRepository = userRepository;
+        this.promptLogService = promptLogService;
+    }
+
+    @Override
+    public UserResponse createUser(UserCreateRequest request) {
+        promptLogService.logPrompt("Task: createUser called with email=" + request.getEmail());
+
+        if (userRepository.existsByEmail(request.getEmail())) {
+            throw new IllegalArgumentException("Email already exists: " + request.getEmail());
+        }
+
+        User user = UserMapper.toEntity(request);
+        User saved = userRepository.save(user);
+        return UserMapper.toResponse(saved);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public UserResponse getUserById(Long id) {
+        promptLogService.logPrompt("Task: getUserById called with id=" + id);
+
+        User user = userRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("User not found: " + id));
+        return UserMapper.toResponse(user);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<UserResponse> listUsers() {
+        promptLogService.logPrompt("Task: listUsers called");
+        return userRepository.findAll().stream().map(UserMapper::toResponse).toList();
+    }
+
+    @Override
+    public void deactivateUser(Long id) {
+        promptLogService.logPrompt("Task: deactivateUser called with id=" + id);
+
+        User user = userRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("User not found: " + id));
+        user.setActive(false);
+        userRepository.save(user);
+    }
+}
+```
+
+---
+
+## 7) Minimal controller (optional but useful for next tasks)
+
+You didn’t ask for controllers yet, but having basic endpoints helps test quickly. If you want to postpone controllers, tell me and I’ll remove it.
+
+### `src/main/java/com/um/springbootprojstructure/controller/UserController.java`
+```java
+package com.um.springbootprojstructure.controller;
+
+import com.um.springbootprojstructure.dto.UserCreateRequest;
+import com.um.springbootprojstructure.dto.UserResponse;
+import com.um.springbootprojstructure.service.PromptLogService;
+import com.um.springbootprojstructure.service.UserService;
+import jakarta.validation.Valid;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/api/users")
+public class UserController {
+
+    private final UserService userService;
+    private final PromptLogService promptLogService;
+
+    public UserController(UserService userService, PromptLogService promptLogService) {
+        this.userService = userService;
+        this.promptLogService = promptLogService;
+    }
+
+    @PostMapping
+    @ResponseStatus(HttpStatus.CREATED)
+    public UserResponse create(@Valid @RequestBody UserCreateRequest request) {
+        promptLogService.logPrompt("HTTP POST /api/users payload email=" + request.getEmail());
+        return userService.createUser(request);
+    }
+
+    @GetMapping("/{id}")
+    public UserResponse getById(@PathVariable Long id) {
+        promptLogService.logPrompt("HTTP GET /api/users/" + id);
+        return userService.getUserById(id);
+    }
+
+    @GetMapping
+    public List<UserResponse> list() {
+        promptLogService.logPrompt("HTTP GET /api/users");
+        return userService.listUsers();
+    }
+
+    @PatchMapping("/{id}/deactivate")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deactivate(@PathVariable Long id) {
+        promptLogService.logPrompt("HTTP PATCH /api/users/" + id + "/deactivate");
+        userService.deactivateUser(id);
+    }
+}
+```
+
+---
+
+## 8) `application.properties`
+
+### `src/main/resources/application.properties`
+```properties
+spring.application.name=user-management
+
+# H2 in-memory
+spring.datasource.url=jdbc:h2:mem:umdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+spring.datasource.driverClassName=org.h2.Driver
+spring.datasource.username=sa
+spring.datasource.password=
+
+spring.jpa.hibernate.ddl-auto=update
+spring.jpa.show-sql=true
+spring.jpa.properties.hibernate.format_sql=true
+
+# H2 console (dev only)
+spring.h2.console.enabled=true
+spring.h2.console.path=/h2-console
+
+# Server
+server.port=8080
+```
+
+---
+
+## Next question (to proceed cleanly)
+Do you want the “prompt logging” to happen:
+1) **only when endpoints are called** (what the code currently does), or  
+2) also via a dedicated endpoint like `POST /api/prompts/log` where you can send any text to be appended to `user-prompt.log`?
+
+Paste the next task requirements when ready.
+user
+The system shall support at least two roles, USER and ADMIN, and shall provide a test setup mechanism for creating an administrator account.
+assistant
+## 1) Add role support (USER, ADMIN) + admin test bootstrap
+
+### `src/main/java/com/um/springbootprojstructure/entity/Role.java`
+```java
+package com.um.springbootprojstructure.entity;
+
+public enum Role {
+    USER,
+    ADMIN
+}
+```
+
+### Update `src/main/java/com/um/springbootprojstructure/entity/User.java`
+Replace your current `User` with this version (adds `role` column):
+
+```java
+package com.um.springbootprojstructure.entity;
+
+import jakarta.persistence.*;
+import java.time.OffsetDateTime;
+
+@Entity
+@Table(name = "users", indexes = {
+        @Index(name = "idx_users_email", columnList = "email", unique = true)
+})
+public class User {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(nullable = false, length = 80)
+    private String firstName;
+
+    @Column(nullable = false, length = 80)
+    private String lastName;
+
+    @Column(nullable = false, unique = true, length = 180)
+    private String email;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 16)
+    private Role role = Role.USER;
+
+    @Column(nullable = false)
+    private boolean active = true;
+
+    @Column(nullable = false, updatable = false)
+    private OffsetDateTime createdAt;
+
+    @Column(nullable = false)
+    private OffsetDateTime updatedAt;
+
+    @PrePersist
+    void prePersist() {
+        OffsetDateTime now = OffsetDateTime.now();
+        this.createdAt = now;
+        this.updatedAt = now;
+        if (this.role == null) this.role = Role.USER;
+    }
+
+    @PreUpdate
+    void preUpdate() {
+        this.updatedAt = OffsetDateTime.now();
+    }
+
+    public User() {}
+
+    // Getters and setters
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+
+    public String getFirstName() { return firstName; }
+    public void setFirstName(String firstName) { this.firstName = firstName; }
+
+    public String getLastName() { return lastName; }
+    public void setLastName(String lastName) { this.lastName = lastName; }
+
+    public String getEmail() { return email; }
+    public void setEmail(String email) { this.email = email; }
+
+    public Role getRole() { return role; }
+    public void setRole(Role role) { this.role = role; }
+
+    public boolean isActive() { return active; }
+    public void setActive(boolean active) { this.active = active; }
+
+    public OffsetDateTime getCreatedAt() { return createdAt; }
+    public OffsetDateTime getUpdatedAt() { return updatedAt; }
+}
+```
+
+---
+
+## 2) DTO + mapper updates
+
+### Update `src/main/java/com/um/springbootprojstructure/dto/UserResponse.java`
+```java
+package com.um.springbootprojstructure.dto;
+
+import com.um.springbootprojstructure.entity.Role;
+
+public class UserResponse {
+    private Long id;
+    private String firstName;
+    private String lastName;
+    private String email;
+    private Role role;
+    private boolean active;
+
+    public UserResponse() {}
+
+    public UserResponse(Long id, String firstName, String lastName, String email, Role role, boolean active) {
+        this.id = id;
+        this.firstName = firstName;
+        this.lastName = lastName;
+        this.email = email;
+        this.role = role;
+        this.active = active;
+    }
+
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+
+    public String getFirstName() { return firstName; }
+    public void setFirstName(String firstName) { this.firstName = firstName; }
+
+    public String getLastName() { return lastName; }
+    public void setLastName(String lastName) { this.lastName = lastName; }
+
+    public String getEmail() { return email; }
+    public void setEmail(String email) { this.email = email; }
+
+    public Role getRole() { return role; }
+    public void setRole(Role role) { this.role = role; }
+
+    public boolean isActive() { return active; }
+    public void setActive(boolean active) { this.active = active; }
+}
+```
+
+### Update `src/main/java/com/um/springbootprojstructure/mapper/UserMapper.java`
+```java
+package com.um.springbootprojstructure.mapper;
+
+import com.um.springbootprojstructure.dto.UserCreateRequest;
+import com.um.springbootprojstructure.dto.UserResponse;
+import com.um.springbootprojstructure.entity.Role;
+import com.um.springbootprojstructure.entity.User;
+
+public class UserMapper {
+
+    private UserMapper() {}
+
+    public static User toEntity(UserCreateRequest req) {
+        User u = new User();
+        u.setFirstName(req.getFirstName());
+        u.setLastName(req.getLastName());
+        u.setEmail(req.getEmail());
+        u.setRole(Role.USER); // default
+        u.setActive(true);
+        return u;
+    }
+
+    public static UserResponse toResponse(User u) {
+        return new UserResponse(
+                u.getId(),
+                u.getFirstName(),
+                u.getLastName(),
+                u.getEmail(),
+                u.getRole(),
+                u.isActive()
+        );
+    }
+}
+```
+
+---
+
+## 3) Test setup mechanism: bootstrap an ADMIN account
+
+This will create an admin user at startup if enabled via properties.
+
+### `src/main/java/com/um/springbootprojstructure/config/AdminBootstrapProperties.java`
+```java
+package com.um.springbootprojstructure.config;
+
+import org.springframework.boot.context.properties.ConfigurationProperties;
+
+@ConfigurationProperties(prefix = "app.bootstrap.admin")
+public class AdminBootstrapProperties {
+
+    private boolean enabled = true;
+    private String email = "admin@example.com";
+    private String firstName = "Admin";
+    private String lastName = "User";
+
+    public boolean isEnabled() { return enabled; }
+    public void setEnabled(boolean enabled) { this.enabled = enabled; }
+
+    public String getEmail() { return email; }
+    public void setEmail(String email) { this.email = email; }
+
+    public String getFirstName() { return firstName; }
+    public void setFirstName(String firstName) { this.firstName = firstName; }
+
+    public String getLastName() { return lastName; }
+    public void setLastName(String lastName) { this.lastName = lastName; }
+}
+```
+
+### `src/main/java/com/um/springbootprojstructure/config/AdminBootstrapConfig.java`
+```java
+package com.um.springbootprojstructure.config;
+
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.context.annotation.Configuration;
+
+@Configuration
+@EnableConfigurationProperties(AdminBootstrapProperties.class)
+public class AdminBootstrapConfig {
+}
+```
+
+### `src/main/java/com/um/springbootprojstructure/config/AdminBootstrapRunner.java`
+```java
+package com.um.springbootprojstructure.config;
+
+import com.um.springbootprojstructure.entity.Role;
+import com.um.springbootprojstructure.entity.User;
+import com.um.springbootprojstructure.repository.UserRepository;
+import com.um.springbootprojstructure.service.PromptLogService;
+import org.springframework.boot.CommandLineRunner;
+import org.springframework.stereotype.Component;
+
+@Component
+public class AdminBootstrapRunner implements CommandLineRunner {
+
+    private final AdminBootstrapProperties props;
+    private final UserRepository userRepository;
+    private final PromptLogService promptLogService;
+
+    public AdminBootstrapRunner(AdminBootstrapProperties props,
+                                UserRepository userRepository,
+                                PromptLogService promptLogService) {
+        this.props = props;
+        this.userRepository = userRepository;
+        this.promptLogService = promptLogService;
+    }
+
+    @Override
+    public void run(String... args) {
+        if (!props.isEnabled()) {
+            promptLogService.logPrompt("Admin bootstrap disabled (app.bootstrap.admin.enabled=false)");
+            return;
+        }
+
+        String email = props.getEmail();
+        if (userRepository.existsByEmail(email)) {
+            promptLogService.logPrompt("Admin bootstrap skipped; admin already exists: " + email);
+            return;
+        }
+
+        User admin = new User();
+        admin.setFirstName(props.getFirstName());
+        admin.setLastName(props.getLastName());
+        admin.setEmail(email);
+        admin.setRole(Role.ADMIN);
+        admin.setActive(true);
+
+        userRepository.save(admin);
+        promptLogService.logPrompt("Admin bootstrap created admin: " + email);
+    }
+}
+```
+
+---
+
+## 4) Update `application.properties`
+
+### `src/main/resources/application.properties`
+Add these lines (keep your existing H2/JPA config):
+
+```properties
+# Admin bootstrap (test setup)
+app.bootstrap.admin.enabled=true
+app.bootstrap.admin.email=admin@example.com
+app.bootstrap.admin.first-name=Admin
+app.bootstrap.admin.last-name=User
+```
+
+---
+
+## 5) (Optional but recommended) Service method to promote user to ADMIN
+If you want an internal operation later:
+
+### Update `src/main/java/com/um/springbootprojstructure/service/UserService.java`
+```java
+void promoteToAdmin(Long id);
+```
+
+### Update `src/main/java/com/um/springbootprojstructure/service/UserServiceImpl.java`
+Add:
+
+```java
+import com.um.springbootprojstructure.entity.Role;
+```
+
+and implement:
+
+```java
+@Override
+public void promoteToAdmin(Long id) {
+    promptLogService.logPrompt("Task: promoteToAdmin called with id=" + id);
+    User user = userRepository.findById(id)
+            .orElseThrow(() -> new IllegalArgumentException("User not found: " + id));
+    user.setRole(Role.ADMIN);
+    userRepository.save(user);
+}
+```
+
+---
+
+If you paste the next requirements, I can add authorization rules (e.g., only ADMIN can call promote/deactivate), but that requires Spring Security (not added yet).
+user
+The system shall provide GET /api/users/{publicRef} to return a user profile JSON object for the requested public account reference.
+assistant
+## 1) Add `publicRef` to User and expose GET `/api/users/{publicRef}`
+
+### Update `src/main/java/com/um/springbootprojstructure/entity/User.java`
+Replace your current `User` with this version (adds `publicRef` with unique index; keeps role/admin bootstrap compatibility):
+
+```java
+package com.um.springbootprojstructure.entity;
+
+import jakarta.persistence.*;
+
+import java.time.OffsetDateTime;
+import java.util.UUID;
+
+@Entity
+@Table(name = "users", indexes = {
+        @Index(name = "idx_users_email", columnList = "email", unique = true),
+        @Index(name = "idx_users_public_ref", columnList = "publicRef", unique = true)
+})
+public class User {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    /**
+     * Public, stable reference to identify the user in APIs without exposing internal numeric ID.
+     */
+    @Column(nullable = false, unique = true, updatable = false, length = 36)
+    private String publicRef;
+
+    @Column(nullable = false, length = 80)
+    private String firstName;
+
+    @Column(nullable = false, length = 80)
+    private String lastName;
+
+    @Column(nullable = false, unique = true, length = 180)
+    private String email;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 16)
+    private Role role = Role.USER;
+
+    @Column(nullable = false)
+    private boolean active = true;
+
+    @Column(nullable = false, updatable = false)
+    private OffsetDateTime createdAt;
+
+    @Column(nullable = false)
+    private OffsetDateTime updatedAt;
+
+    @PrePersist
+    void prePersist() {
+        OffsetDateTime now = OffsetDateTime.now();
+        this.createdAt = now;
+        this.updatedAt = now;
+
+        if (this.publicRef == null || this.publicRef.isBlank()) {
+            this.publicRef = UUID.randomUUID().toString();
+        }
+        if (this.role == null) {
+            this.role = Role.USER;
+        }
+    }
+
+    @PreUpdate
+    void preUpdate() {
+        this.updatedAt = OffsetDateTime.now();
+    }
+
+    public User() {}
+
+    // Getters/setters
+
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+
+    public String getPublicRef() { return publicRef; }
+    public void setPublicRef(String publicRef) { this.publicRef = publicRef; }
+
+    public String getFirstName() { return firstName; }
+    public void setFirstName(String firstName) { this.firstName = firstName; }
+
+    public String getLastName() { return lastName; }
+    public void setLastName(String lastName) { this.lastName = lastName; }
+
+    public String getEmail() { return email; }
+    public void setEmail(String email) { this.email = email; }
+
+    public Role getRole() { return role; }
+    public void setRole(Role role) { this.role = role; }
+
+    public boolean isActive() { return active; }
+    public void setActive(boolean active) { this.active = active; }
+
+    public OffsetDateTime getCreatedAt() { return createdAt; }
+    public OffsetDateTime getUpdatedAt() { return updatedAt; }
+}
+```
+
+---
+
+## 2) Repository support for lookup by publicRef
+
+### Update `src/main/java/com/um/springbootprojstructure/repository/UserRepository.java`
+```java
+package com.um.springbootprojstructure.repository;
+
+import com.um.springbootprojstructure.entity.User;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+import java.util.Optional;
+
+public interface UserRepository extends JpaRepository<User, Long> {
+    Optional<User> findByEmail(String email);
+    boolean existsByEmail(String email);
+
+    Optional<User> findByPublicRef(String publicRef);
+    boolean existsByPublicRef(String publicRef);
+}
+```
+
+---
+
+## 3) DTO for “user profile JSON object”
+
+This is what GET should return (profile info via publicRef; doesn’t expose internal id/email by default).
+
+### `src/main/java/com/um/springbootprojstructure/dto/UserProfileResponse.java`
+```java
+package com.um.springbootprojstructure.dto;
+
+public class UserProfileResponse {
+
+    private String publicRef;
+    private String firstName;
+    private String lastName;
+    private boolean active;
+
+    public UserProfileResponse() {}
+
+    public UserProfileResponse(String publicRef, String firstName, String lastName, boolean active) {
+        this.publicRef = publicRef;
+        this.firstName = firstName;
+        this.lastName = lastName;
+        this.active = active;
+    }
+
+    public String getPublicRef() { return publicRef; }
+    public void setPublicRef(String publicRef) { this.publicRef = publicRef; }
+
+    public String getFirstName() { return firstName; }
+    public void setFirstName(String firstName) { this.firstName = firstName; }
+
+    public String getLastName() { return lastName; }
+    public void setLastName(String lastName) { this.lastName = lastName; }
+
+    public boolean isActive() { return active; }
+    public void setActive(boolean active) { this.active = active; }
+}
+```
+
+---
+
+## 4) Mapper for profile response
+
+### Update `src/main/java/com/um/springbootprojstructure/mapper/UserMapper.java`
+```java
+package com.um.springbootprojstructure.mapper;
+
+import com.um.springbootprojstructure.dto.UserCreateRequest;
+import com.um.springbootprojstructure.dto.UserProfileResponse;
+import com.um.springbootprojstructure.dto.UserResponse;
+import com.um.springbootprojstructure.entity.Role;
+import com.um.springbootprojstructure.entity.User;
+
+public class UserMapper {
+
+    private UserMapper() {}
+
+    public static User toEntity(UserCreateRequest req) {
+        User u = new User();
+        u.setFirstName(req.getFirstName());
+        u.setLastName(req.getLastName());
+        u.setEmail(req.getEmail());
+        u.setRole(Role.USER);
+        u.setActive(true);
+        return u;
+    }
+
+    public static UserResponse toResponse(User u) {
+        return new UserResponse(
+                u.getId(),
+                u.getFirstName(),
+                u.getLastName(),
+                u.getEmail(),
+                u.getRole(),
+                u.isActive()
+        );
+    }
+
+    public static UserProfileResponse toProfile(User u) {
+        return new UserProfileResponse(
+                u.getPublicRef(),
+                u.getFirstName(),
+                u.getLastName(),
+                u.isActive()
+        );
+    }
+}
+```
+
+---
+
+## 5) Service method: get profile by publicRef
+
+### Update `src/main/java/com/um/springbootprojstructure/service/UserService.java`
+Add:
+```java
+import com.um.springbootprojstructure.dto.UserProfileResponse;
+
+UserProfileResponse getUserProfileByPublicRef(String publicRef);
+```
+
+### Update `src/main/java/com/um/springbootprojstructure/service/UserServiceImpl.java`
+Add method:
+
+```java
+import com.um.springbootprojstructure.dto.UserProfileResponse;
+
+// ...
+
+@Override
+@Transactional(readOnly = true)
+public UserProfileResponse getUserProfileByPublicRef(String publicRef) {
+    promptLogService.logPrompt("Task: getUserProfileByPublicRef called with publicRef=" + publicRef);
+
+    User user = userRepository.findByPublicRef(publicRef)
+            .orElseThrow(() -> new IllegalArgumentException("User not found for publicRef: " + publicRef));
+
+    return UserMapper.toProfile(user);
+}
+```
+
+---
+
+## 6) Controller: GET `/api/users/{publicRef}`
+
+Your earlier controller used `/api/users/{id}`. That will conflict with this new requirement.
+So we’ll switch to:
+- `GET /api/users/{publicRef}` for profile lookup (required)
+- `GET /api/users/id/{id}` for internal lookup (optional, keeps previous behavior)
+
+### Update `src/main/java/com/um/springbootprojstructure/controller/UserController.java`
+```java
+package com.um.springbootprojstructure.controller;
+
+import com.um.springbootprojstructure.dto.UserCreateRequest;
+import com.um.springbootprojstructure.dto.UserProfileResponse;
+import com.um.springbootprojstructure.dto.UserResponse;
+import com.um.springbootprojstructure.service.PromptLogService;
+import com.um.springbootprojstructure.service.UserService;
+import jakarta.validation.Valid;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/api/users")
+public class UserController {
+
+    private final UserService userService;
+    private final PromptLogService promptLogService;
+
+    public UserController(UserService userService, PromptLogService promptLogService) {
+        this.userService = userService;
+        this.promptLogService = promptLogService;
+    }
+
+    @PostMapping
+    @ResponseStatus(HttpStatus.CREATED)
+    public UserResponse create(@Valid @RequestBody UserCreateRequest request) {
+        promptLogService.logPrompt("HTTP POST /api/users payload email=" + request.getEmail());
+        return userService.createUser(request);
+    }
+
+    /**
+     * REQUIRED by spec:
+     * GET /api/users/{publicRef} returns user profile JSON for public account reference.
+     */
+    @GetMapping("/{publicRef}")
+    public UserProfileResponse getProfile(@PathVariable String publicRef) {
+        promptLogService.logPrompt("HTTP GET /api/users/" + publicRef);
+        return userService.getUserProfileByPublicRef(publicRef);
+    }
+
+    // Optional (keeps prior functionality without conflicting with /{publicRef})
+    @GetMapping("/id/{id}")
+    public UserResponse getById(@PathVariable Long id) {
+        promptLogService.logPrompt("HTTP GET /api/users/id/" + id);
+        return userService.getUserById(id);
+    }
+
+    @GetMapping
+    public List<UserResponse> list() {
+        promptLogService.logPrompt("HTTP GET /api/users");
+        return userService.listUsers();
+    }
+
+    @PatchMapping("/id/{id}/deactivate")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deactivate(@PathVariable Long id) {
+        promptLogService.logPrompt("HTTP PATCH /api/users/id/" + id + "/deactivate");
+        userService.deactivateUser(id);
+    }
+}
+```
+
+---
+
+## 7) Ensure admin bootstrap still works
+No code change needed besides recompiling—`publicRef` is auto-generated in `@PrePersist`, so the bootstrap admin will get one too.
+
+---
+
+## Quick test
+1. Run app
+2. Create a user:
+```bash
+curl -s -X POST http://localhost:8080/api/users \
+  -H "Content-Type: application/json" \
+  -d '{"firstName":"Jane","lastName":"Doe","email":"jane@example.com"}'
+```
+3. From the response, note `id` etc. (publicRef isn’t returned in `UserResponse` currently). If you want, I can include `publicRef` there too.
+4. Find `publicRef` by querying H2 console or add it to create response.
+5. Call:
+```bash
+curl -s http://localhost:8080/api/users/{publicRef}
+```
+
+---
+
+### One choice to confirm
+Do you want `publicRef` included in:
+- the **create user response** (recommended so clients can immediately call `/api/users/{publicRef}`), or
+- kept hidden and only retrievable another way?
+user
+The system shall provide PUT /api/users/{publicRef} to update allowed user profile fields and return the updated profile as JSON.
+assistant
+## 1) DTO: update request (allowed profile fields)
+
+### `src/main/java/com/um/springbootprojstructure/dto/UserProfileUpdateRequest.java`
+```java
+package com.um.springbootprojstructure.dto;
+
+import jakarta.validation.constraints.Size;
+
+public class UserProfileUpdateRequest {
+
+    // Allowed fields (no email/role here by spec)
+    @Size(max = 80)
+    private String firstName;
+
+    @Size(max = 80)
+    private String lastName;
+
+    public UserProfileUpdateRequest() {}
+
+    public String getFirstName() { return firstName; }
+    public void setFirstName(String firstName) { this.firstName = firstName; }
+
+    public String getLastName() { return lastName; }
+    public void setLastName(String lastName) { this.lastName = lastName; }
+}
+```
+
+---
+
+## 2) Service: update profile by publicRef
+
+### Update `src/main/java/com/um/springbootprojstructure/service/UserService.java`
+Add:
+```java
+import com.um.springbootprojstructure.dto.UserProfileUpdateRequest;
+
+// ...
+
+UserProfileResponse updateUserProfile(String publicRef, UserProfileUpdateRequest request);
+```
+
+### Update `src/main/java/com/um/springbootprojstructure/service/UserServiceImpl.java`
+Add imports:
+```java
+import com.um.springbootprojstructure.dto.UserProfileUpdateRequest;
+```
+
+Add method:
+```java
+@Override
+public UserProfileResponse updateUserProfile(String publicRef, UserProfileUpdateRequest request) {
+    promptLogService.logPrompt("Task: updateUserProfile called with publicRef=" + publicRef);
+
+    User user = userRepository.findByPublicRef(publicRef)
+            .orElseThrow(() -> new IllegalArgumentException("User not found for publicRef: " + publicRef));
+
+    // Update only allowed fields (ignore nulls for PUT behavior? Usually PUT replaces; here we treat null as "no change").
+    if (request.getFirstName() != null) user.setFirstName(request.getFirstName());
+    if (request.getLastName() != null) user.setLastName(request.getLastName());
+
+    User saved = userRepository.save(user);
+    return UserMapper.toProfile(saved);
+}
+```
+
+> Note: You asked for **PUT**. Classic PUT semantics = full replacement, but your request says “update allowed fields”, so the common approach is **partial update** of allowed fields (null = unchanged). If you want strict PUT (require both firstName & lastName), tell me and I’ll enforce `@NotBlank` on both fields.
+
+---
+
+## 3) Controller: PUT `/api/users/{publicRef}`
+
+### Update `src/main/java/com/um/springbootprojstructure/controller/UserController.java`
+Add imports:
+```java
+import com.um.springbootprojstructure.dto.UserProfileUpdateRequest;
+```
+
+Add endpoint (keep GET as-is):
+```java
+@PutMapping("/{publicRef}")
+public UserProfileResponse updateProfile(@PathVariable String publicRef,
+                                        @Valid @RequestBody UserProfileUpdateRequest request) {
+    promptLogService.logPrompt("HTTP PUT /api/users/" + publicRef);
+    return userService.updateUserProfile(publicRef, request);
+}
+```
+
+Full controller for clarity (only showing relevant parts; keep your other endpoints):
+```java
+package com.um.springbootprojstructure.controller;
+
+import com.um.springbootprojstructure.dto.UserCreateRequest;
+import com.um.springbootprojstructure.dto.UserProfileResponse;
+import com.um.springbootprojstructure.dto.UserProfileUpdateRequest;
+import com.um.springbootprojstructure.dto.UserResponse;
+import com.um.springbootprojstructure.service.PromptLogService;
+import com.um.springbootprojstructure.service.UserService;
+import jakarta.validation.Valid;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/api/users")
+public class UserController {
+
+    private final UserService userService;
+    private final PromptLogService promptLogService;
+
+    public UserController(UserService userService, PromptLogService promptLogService) {
+        this.userService = userService;
+        this.promptLogService = promptLogService;
+    }
+
+    @PostMapping
+    @ResponseStatus(HttpStatus.CREATED)
+    public UserResponse create(@Valid @RequestBody UserCreateRequest request) {
+        promptLogService.logPrompt("HTTP POST /api/users payload email=" + request.getEmail());
+        return userService.createUser(request);
+    }
+
+    @GetMapping("/{publicRef}")
+    public UserProfileResponse getProfile(@PathVariable String publicRef) {
+        promptLogService.logPrompt("HTTP GET /api/users/" + publicRef);
+        return userService.getUserProfileByPublicRef(publicRef);
+    }
+
+    @PutMapping("/{publicRef}")
+    public UserProfileResponse updateProfile(@PathVariable String publicRef,
+                                            @Valid @RequestBody UserProfileUpdateRequest request) {
+        promptLogService.logPrompt("HTTP PUT /api/users/" + publicRef);
+        return userService.updateUserProfile(publicRef, request);
+    }
+
+    @GetMapping("/id/{id}")
+    public UserResponse getById(@PathVariable Long id) {
+        promptLogService.logPrompt("HTTP GET /api/users/id/" + id);
+        return userService.getUserById(id);
+    }
+
+    @GetMapping
+    public List<UserResponse> list() {
+        promptLogService.logPrompt("HTTP GET /api/users");
+        return userService.listUsers();
+    }
+
+    @PatchMapping("/id/{id}/deactivate")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deactivate(@PathVariable Long id) {
+        promptLogService.logPrompt("HTTP PATCH /api/users/id/" + id + "/deactivate");
+        userService.deactivateUser(id);
+    }
+}
+```
+
+---
+
+## 4) (Recommended) Better error handling: return 404 instead of 500
+
+Right now `IllegalArgumentException` will likely produce a 500. Add a simple global handler.
+
+### `src/main/java/com/um/springbootprojstructure/config/GlobalExceptionHandler.java`
+```java
+package com.um.springbootprojstructure.config;
+
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+
+import java.time.OffsetDateTime;
+import java.util.LinkedHashMap;
+import java.util.Map;
+
+@RestControllerAdvice
+public class GlobalExceptionHandler {
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<Map<String, Object>> handleIllegalArgument(IllegalArgumentException ex) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("timestamp", OffsetDateTime.now().toString());
+        body.put("error", "Bad Request");
+        body.put("message", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(body);
+    }
+}
+```
+
+If you want true 404 for “not found”, I’ll introduce a `UserNotFoundException` and map it to 404.
+
+---
+
+## 5) Example call
+
+```bash
+curl -s -X PUT "http://localhost:8080/api/users/{publicRef}" \
+  -H "Content-Type: application/json" \
+  -d '{"firstName":"Janet","lastName":"Doe"}'
+```
+
+Response (example):
+```json
+{
+  "publicRef": "0d6b0a2c-2c46-4f4a-94f4-8d4b536b5d0f",
+  "firstName": "Janet",
+  "lastName": "Doe",
+  "active": true
+}
+```
+
+---
+
+### Confirm one detail
+Should PUT require **both** `firstName` and `lastName` (strict PUT), or allow partial update (null = unchanged) as implemented above?
+user
+The system shall assign each user account a public account reference suitable for use in client-facing URLs and API routes, and shall return that reference in profile-related responses.
+assistant
+## 1) Ensure every user has a public account reference (already done)
+Your `User` entity already assigns `publicRef` at creation time via `@PrePersist` using a UUID, which is suitable for client-facing URLs and API routes.
+
+No change required here (unless you want a different format, e.g., Base62).
+
+---
+
+## 2) Return `publicRef` in *profile-related* responses
+
+Your **profile response** already includes `publicRef`:
+
+### `src/main/java/com/um/springbootprojstructure/dto/UserProfileResponse.java`
+(already correct)
+```java
+private String publicRef;
+```
+
+### `src/main/java/com/um/springbootprojstructure/mapper/UserMapper.java`
+(already correct)
+```java
+public static UserProfileResponse toProfile(User u) {
+    return new UserProfileResponse(
+            u.getPublicRef(),
+            u.getFirstName(),
+            u.getLastName(),
+            u.isActive()
+    );
+}
+```
+
+So:
+- `GET /api/users/{publicRef}` returns `publicRef` ✅
+- `PUT /api/users/{publicRef}` returns `publicRef` ✅
+
+---
+
+## 3) Recommended: also include `publicRef` in “create user” response (profile-related)
+Creating a user is typically the first time a client needs the `publicRef`. Right now your `POST /api/users` returns `UserResponse` (which does **not** include publicRef). To align with your requirement in a practical way, update the create response to include it.
+
+### Option A (minimal change): add `publicRef` to `UserResponse`
+
+#### Update `src/main/java/com/um/springbootprojstructure/dto/UserResponse.java`
+```java
+package com.um.springbootprojstructure.dto;
+
+import com.um.springbootprojstructure.entity.Role;
+
+public class UserResponse {
+    private Long id;
+    private String publicRef;
+    private String firstName;
+    private String lastName;
+    private String email;
+    private Role role;
+    private boolean active;
+
+    public UserResponse() {}
+
+    public UserResponse(Long id, String publicRef, String firstName, String lastName,
+                        String email, Role role, boolean active) {
+        this.id = id;
+        this.publicRef = publicRef;
+        this.firstName = firstName;
+        this.lastName = lastName;
+        this.email = email;
+        this.role = role;
+        this.active = active;
+    }
+
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+
+    public String getPublicRef() { return publicRef; }
+    public void setPublicRef(String publicRef) { this.publicRef = publicRef; }
+
+    public String getFirstName() { return firstName; }
+    public void setFirstName(String firstName) { this.firstName = firstName; }
+
+    public String getLastName() { return lastName; }
+    public void setLastName(String lastName) { this.lastName = lastName; }
+
+    public String getEmail() { return email; }
+    public void setEmail(String email) { this.email = email; }
+
+    public Role getRole() { return role; }
+    public void setRole(Role role) { this.role = role; }
+
+    public boolean isActive() { return active; }
+    public void setActive(boolean active) { this.active = active; }
+}
+```
+
+#### Update `src/main/java/com/um/springbootprojstructure/mapper/UserMapper.java`
+Update `toResponse`:
+```java
+public static UserResponse toResponse(User u) {
+    return new UserResponse(
+            u.getId(),
+            u.getPublicRef(),
+            u.getFirstName(),
+            u.getLastName(),
+            u.getEmail(),
+            u.getRole(),
+            u.isActive()
+    );
+}
+```
+
+That’s it—now `POST /api/users` will return `publicRef` too (useful for subsequent profile routes).
+
+---
+
+## 4) (Optional but recommended) Return 404 for unknown publicRef
+Right now, unknown users throw `IllegalArgumentException` and map to 400 in the global handler you added. If you want proper semantics, add a dedicated exception.
+
+### `src/main/java/com/um/springbootprojstructure/service/UserNotFoundException.java`
+```java
+package com.um.springbootprojstructure.service;
+
+public class UserNotFoundException extends RuntimeException {
+    public UserNotFoundException(String message) {
+        super(message);
+    }
+}
+```
+
+Update lookups in `UserServiceImpl` (example):
+```java
+User user = userRepository.findByPublicRef(publicRef)
+        .orElseThrow(() -> new UserNotFoundException("User not found for publicRef: " + publicRef));
+```
+
+And update handler:
+
+### Update `src/main/java/com/um/springbootprojstructure/config/GlobalExceptionHandler.java`
+```java
+import com.um.springbootprojstructure.service.UserNotFoundException;
+
+// ...
+
+@ExceptionHandler(UserNotFoundException.class)
+public ResponseEntity<Map<String, Object>> handleNotFound(UserNotFoundException ex) {
+    Map<String, Object> body = new LinkedHashMap<>();
+    body.put("timestamp", OffsetDateTime.now().toString());
+    body.put("error", "Not Found");
+    body.put("message", ex.getMessage());
+    return ResponseEntity.status(HttpStatus.NOT_FOUND).body(body);
+}
+```
+
+---
+
+If you want the `publicRef` to be **non-guessable but shorter** than UUID (e.g., 12–16 chars Base62), say so and I’ll implement a generator + uniqueness check.
+user
+The system shall provide POST /api/auth/refresh to issue a new session token for an authenticated session context.
+assistant
+### Add Spring Security + JWT refresh endpoint: `POST /api/auth/refresh`
+
+This implements **stateless JWT access tokens** plus a **refresh token** that can be exchanged for a new access token. (This matches “issue a new session token for an authenticated session context”.)
+
+It also keeps your package structure and Gradle.
+
+---
+
+## 1) Gradle dependencies
+
+### Update `build.gradle`
+Add JWT + Security:
+
+```gradle
+dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+    implementation 'org.springframework.boot:spring-boot-starter-validation'
+
+    implementation 'org.springframework.boot:spring-boot-starter-security'
+
+    // JWT (JJWT)
+    implementation 'io.jsonwebtoken:jjwt-api:0.12.5'
+    runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.12.5'
+    runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.12.5'
+
+    runtimeOnly 'com.h2database:h2'
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.springframework.security:spring-security-test'
+}
+```
+
+---
+
+## 2) Add password support to User (needed for authentication)
+
+### Update `src/main/java/com/um/springbootprojstructure/entity/User.java`
+Add a password hash field (do **not** expose in DTOs):
+
+```java
+@Column(nullable = false, length = 255)
+private String passwordHash;
+
+public String getPasswordHash() { return passwordHash; }
+public void setPasswordHash(String passwordHash) { this.passwordHash = passwordHash; }
+```
+
+> Place it near email/role fields.
+
+### Update admin bootstrap to set a password
+Update `application.properties` (later) and runner (below).
+
+---
+
+## 3) Auth DTOs
+
+### `src/main/java/com/um/springbootprojstructure/dto/AuthLoginRequest.java`
+```java
+package com.um.springbootprojstructure.dto;
+
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.NotBlank;
+
+public class AuthLoginRequest {
+
+    @NotBlank
+    @Email
+    private String email;
+
+    @NotBlank
+    private String password;
+
+    public AuthLoginRequest() {}
+
+    public String getEmail() { return email; }
+    public void setEmail(String email) { this.email = email; }
+
+    public String getPassword() { return password; }
+    public void setPassword(String password) { this.password = password; }
+}
+```
+
+### `src/main/java/com/um/springbootprojstructure/dto/AuthTokenResponse.java`
+```java
+package com.um.springbootprojstructure.dto;
+
+public class AuthTokenResponse {
+    private String accessToken;
+    private String refreshToken;
+    private String tokenType = "Bearer";
+
+    public AuthTokenResponse() {}
+
+    public AuthTokenResponse(String accessToken, String refreshToken) {
+        this.accessToken = accessToken;
+        this.refreshToken = refreshToken;
+    }
+
+    public String getAccessToken() { return accessToken; }
+    public void setAccessToken(String accessToken) { this.accessToken = accessToken; }
+
+    public String getRefreshToken() { return refreshToken; }
+    public void setRefreshToken(String refreshToken) { this.refreshToken = refreshToken; }
+
+    public String getTokenType() { return tokenType; }
+    public void setTokenType(String tokenType) { this.tokenType = tokenType; }
+}
+```
+
+### `src/main/java/com/um/springbootprojstructure/dto/RefreshTokenRequest.java`
+```java
+package com.um.springbootprojstructure.dto;
+
+import jakarta.validation.constraints.NotBlank;
+
+public class RefreshTokenRequest {
+
+    @NotBlank
+    private String refreshToken;
+
+    public RefreshTokenRequest() {}
+
+    public String getRefreshToken() { return refreshToken; }
+    public void setRefreshToken(String refreshToken) { this.refreshToken = refreshToken; }
+}
+```
+
+---
+
+## 4) Security config + JWT utilities
+
+### `src/main/java/com/um/springbootprojstructure/config/SecurityBeansConfig.java`
+```java
+package com.um.springbootprojstructure.config;
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+
+@Configuration
+public class SecurityBeansConfig {
+
+    @Bean
+    public PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
+    }
+}
+```
+
+### `src/main/java/com/um/springbootprojstructure/service/JwtService.java`
+```java
+package com.um.springbootprojstructure.service;
+
+import com.um.springbootprojstructure.entity.Role;
+import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.security.Keys;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+
+import javax.crypto.SecretKey;
+import java.time.Instant;
+import java.util.Date;
+import java.util.Map;
+
+@Service
+public class JwtService {
+
+    private final SecretKey key;
+    private final long accessTtlSeconds;
+    private final long refreshTtlSeconds;
+
+    public JwtService(
+            @Value("${app.jwt.secret}") String secret,
+            @Value("${app.jwt.access-ttl-seconds:900}") long accessTtlSeconds,
+            @Value("${app.jwt.refresh-ttl-seconds:1209600}") long refreshTtlSeconds
+    ) {
+        // secret should be at least 32+ bytes for HS256
+        this.key = Keys.hmacShaKeyFor(secret.getBytes());
+        this.accessTtlSeconds = accessTtlSeconds;
+        this.refreshTtlSeconds = refreshTtlSeconds;
+    }
+
+    public String issueAccessToken(String userPublicRef, String email, Role role) {
+        Instant now = Instant.now();
+        return Jwts.builder()
+                .subject(userPublicRef)
+                .claims(Map.of(
+                        "email", email,
+                        "role", role.name(),
+                        "typ", "access"
+                ))
+                .issuedAt(Date.from(now))
+                .expiration(Date.from(now.plusSeconds(accessTtlSeconds)))
+                .signWith(key)
+                .compact();
+    }
+
+    public String issueRefreshToken(String userPublicRef) {
+        Instant now = Instant.now();
+        return Jwts.builder()
+                .subject(userPublicRef)
+                .claims(Map.of("typ", "refresh"))
+                .issuedAt(Date.from(now))
+                .expiration(Date.from(now.plusSeconds(refreshTtlSeconds)))
+                .signWith(key)
+                .compact();
+    }
+
+    public Claims parse(String jwt) {
+        return Jwts.parser()
+                .verifyWith(key)
+                .build()
+                .parseSignedClaims(jwt)
+                .getPayload();
+    }
+
+    public boolean isRefreshToken(Claims claims) {
+        return "refresh".equals(claims.get("typ", String.class));
+    }
+
+    public String getSubject(Claims claims) {
+        return claims.getSubject();
+    }
+}
+```
+
+---
+
+## 5) Load user for authentication
+
+### `src/main/java/com/um/springbootprojstructure/service/AppUserDetailsService.java`
+```java
+package com.um.springbootprojstructure.service;
+
+import com.um.springbootprojstructure.entity.User;
+import com.um.springbootprojstructure.repository.UserRepository;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.userdetails.*;
+import org.springframework.stereotype.Service;
+
+import java.util.List;
+
+@Service
+public class AppUserDetailsService implements UserDetailsService {
+
+    private final UserRepository userRepository;
+
+    public AppUserDetailsService(UserRepository userRepository) {
+        this.userRepository = userRepository;
+    }
+
+    @Override
+    public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
+        // username == email
+        User user = userRepository.findByEmail(username)
+                .orElseThrow(() -> new UsernameNotFoundException("User not found: " + username));
+
+        return new org.springframework.security.core.userdetails.User(
+                user.getEmail(),
+                user.getPasswordHash(),
+                user.isActive(),
+                true,
+                true,
+                true,
+                List.of(new SimpleGrantedAuthority("ROLE_" + user.getRole().name()))
+        );
+    }
+}
+```
+
+---
+
+## 6) Auth service (login + refresh)
+
+### `src/main/java/com/um/springbootprojstructure/service/AuthService.java`
+```java
+package com.um.springbootprojstructure.service;
+
+import com.um.springbootprojstructure.dto.AuthTokenResponse;
+
+public interface AuthService {
+    AuthTokenResponse login(String email, String password);
+    AuthTokenResponse refresh(String refreshToken);
+}
+```
+
+### `src/main/java/com/um/springbootprojstructure/service/AuthServiceImpl.java`
+```java
+package com.um.springbootprojstructure.service;
+
+import com.um.springbootprojstructure.dto.AuthTokenResponse;
+import com.um.springbootprojstructure.entity.User;
+import com.um.springbootprojstructure.repository.UserRepository;
+import io.jsonwebtoken.Claims;
+import org.springframework.security.authentication.*;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Service;
+
+@Service
+public class AuthServiceImpl implements AuthService {
+
+    private final AuthenticationManager authenticationManager;
+    private final UserRepository userRepository;
+    private final JwtService jwtService;
+    private final PromptLogService promptLogService;
+
+    public AuthServiceImpl(AuthenticationManager authenticationManager,
+                           UserRepository userRepository,
+                           JwtService jwtService,
+                           PromptLogService promptLogService) {
+        this.authenticationManager = authenticationManager;
+        this.userRepository = userRepository;
+        this.jwtService = jwtService;
+        this.promptLogService = promptLogService;
+    }
+
+    @Override
+    public AuthTokenResponse login(String email, String password) {
+        promptLogService.logPrompt("Task: login called with email=" + email);
+
+        Authentication auth = authenticationManager.authenticate(
+                new UsernamePasswordAuthenticationToken(email, password)
+        );
+
+        // if auth succeeds, issue tokens based on DB user
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new IllegalArgumentException("User not found: " + email));
+
+        String access = jwtService.issueAccessToken(user.getPublicRef(), user.getEmail(), user.getRole());
+        String refresh = jwtService.issueRefreshToken(user.getPublicRef());
+        return new AuthTokenResponse(access, refresh);
+    }
+
+    @Override
+    public AuthTokenResponse refresh(String refreshToken) {
+        promptLogService.logPrompt("Task: refresh called");
+
+        Claims claims = jwtService.parse(refreshToken);
+        if (!jwtService.isRefreshToken(claims)) {
+            throw new IllegalArgumentException("Provided token is not a refresh token");
+        }
+
+        String publicRef = jwtService.getSubject(claims);
+
+        User user = userRepository.findByPublicRef(publicRef)
+                .orElseThrow(() -> new IllegalArgumentException("User not found for publicRef: " + publicRef));
+
+        if (!user.isActive()) {
+            throw new IllegalArgumentException("User is deactivated");
+        }
+
+        String newAccess = jwtService.issueAccessToken(user.getPublicRef(), user.getEmail(), user.getRole());
+        String newRefresh = jwtService.issueRefreshToken(user.getPublicRef()); // rotate refresh token
+        return new AuthTokenResponse(newAccess, newRefresh);
+    }
+}
+```
+
+---
+
+## 7) Controller: `/api/auth/refresh` (and login for testing)
+
+### `src/main/java/com/um/springbootprojstructure/controller/AuthController.java`
+```java
+package com.um.springbootprojstructure.controller;
+
+import com.um.springbootprojstructure.dto.AuthLoginRequest;
+import com.um.springbootprojstructure.dto.AuthTokenResponse;
+import com.um.springbootprojstructure.dto.RefreshTokenRequest;
+import com.um.springbootprojstructure.service.AuthService;
+import com.um.springbootprojstructure.service.PromptLogService;
+import jakarta.validation.Valid;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/api/auth")
+public class AuthController {
+
+    private final AuthService authService;
+    private final PromptLogService promptLogService;
+
+    public AuthController(AuthService authService, PromptLogService promptLogService) {
+        this.authService = authService;
+        this.promptLogService = promptLogService;
+    }
+
+    @PostMapping("/login")
+    public AuthTokenResponse login(@Valid @RequestBody AuthLoginRequest request) {
+        promptLogService.logPrompt("HTTP POST /api/auth/login email=" + request.getEmail());
+        return authService.login(request.getEmail(), request.getPassword());
+    }
+
+    /**
+     * REQUIRED:
+     * POST /api/auth/refresh -> issue a new session token for an authenticated session context.
+     */
+    @PostMapping("/refresh")
+    @ResponseStatus(HttpStatus.OK)
+    public AuthTokenResponse refresh(@Valid @RequestBody RefreshTokenRequest request) {
+        promptLogService.logPrompt("HTTP POST /api/auth/refresh");
+        return authService.refresh(request.getRefreshToken());
+    }
+}
+```
+
+---
+
+## 8) Spring Security configuration (permit refresh/login; protect others later)
+
+### `src/main/java/com/um/springbootprojstructure/config/SecurityConfig.java`
+```java
+package com.um.springbootprojstructure.config;
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.web.SecurityFilterChain;
+
+@Configuration
+public class SecurityConfig {
+
+    @Bean
+    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+        // Note: JWT authentication filter not added yet (we can add next task).
+        http
+            .csrf(csrf -> csrf.disable())
+            .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+            .authorizeHttpRequests(auth -> auth
+                    .requestMatchers("/api/auth/login", "/api/auth/refresh").permitAll()
+                    .requestMatchers("/h2-console/**").permitAll()
+                    .anyRequest().permitAll() // keep open for now; tighten when JWT filter is added
+            );
+
+        // allow frames for h2 console
+        http.headers(h -> h.frameOptions(f -> f.disable()));
+
+        return http.build();
+    }
+
+    @Bean
+    public AuthenticationManager authenticationManager(AuthenticationConfiguration cfg) throws Exception {
+        return cfg.getAuthenticationManager();
+    }
+}
+```
+
+---
+
+## 9) Admin bootstrap: set admin password
+
+### Update `src/main/java/com/um/springbootprojstructure/config/AdminBootstrapProperties.java`
+Add:
+```java
+private String password = "admin123";
+public String getPassword() { return password; }
+public void setPassword(String password) { this.password = password; }
+```
+
+### Update `src/main/java/com/um/springbootprojstructure/config/AdminBootstrapRunner.java`
+Inject `PasswordEncoder` and set password hash:
+
+```java
+import org.springframework.security.crypto.password.PasswordEncoder;
+```
+
+Constructor and field:
+```java
+private final PasswordEncoder passwordEncoder;
+
+public AdminBootstrapRunner(AdminBootstrapProperties props,
+                           UserRepository userRepository,
+                           PromptLogService promptLogService,
+                           PasswordEncoder passwordEncoder) {
+    this.props = props;
+    this.userRepository = userRepository;
+    this.promptLogService = promptLogService;
+    this.passwordEncoder = passwordEncoder;
+}
+```
+
+When creating admin:
+```java
+admin.setPasswordHash(passwordEncoder.encode(props.getPassword()));
+```
+
+Also log (without printing password):
+```java
+promptLogService.logPrompt("Admin bootstrap created admin: " + email + " (password set from properties)");
+```
+
+---
+
+## 10) `application.properties` add JWT + admin password
+
+### Update `src/main/resources/application.properties`
+Add:
+
+```properties
+# JWT
+# Use 32+ chars (this is just for dev)
+app.jwt.secret=change-me-change-me-change-me-32-chars-min
+app.jwt.access-ttl-seconds=900
+app.jwt.refresh-ttl-seconds=1209600
+
+# Admin bootstrap password (dev/test only)
+app.bootstrap.admin.password=admin123
+```
+
+---
+
+## 11) Test calls
+
+1) Login as bootstrap admin:
+```bash
+curl -s -X POST http://localhost:8080/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@example.com","password":"admin123"}'
+```
+
+2) Refresh:
+```bash
+curl -s -X POST http://localhost:8080/api/auth/refresh \
+  -H "Content-Type: application/json" \
+  -d '{"refreshToken":"<refreshTokenFromLogin>"}'
+```
+
+Returns a new JSON with new `accessToken` and rotated `refreshToken`.
+
+---
+
+### Note about “authenticated session context”
+Right now the “session context” is embodied by the **refresh token** itself (stateless). If you need server-side session tracking / revocation (e.g., store refresh tokens in DB), say so and I’ll add a `RefreshToken` entity + repository and enforce rotation + revocation.
+user
+The system shall provide POST /api/admin/users/merge to merge two user accounts that are determined to belong to the same person. The request shall accept a source user reference and a target user reference, consolidate the selected account data into the target account, and return a JSON summary of the merge result.
+assistant
+## 1) DTOs
+
+### `src/main/java/com/um/springbootprojstructure/dto/AdminUserMergeRequest.java`
+```java
+package com.um.springbootprojstructure.dto;
+
+import jakarta.validation.constraints.NotBlank;
+
+public class AdminUserMergeRequest {
+
+    @NotBlank
+    private String sourcePublicRef;
+
+    @NotBlank
+    private String targetPublicRef;
+
+    public AdminUserMergeRequest() {}
+
+    public String getSourcePublicRef() { return sourcePublicRef; }
+    public void setSourcePublicRef(String sourcePublicRef) { this.sourcePublicRef = sourcePublicRef; }
+
+    public String getTargetPublicRef() { return targetPublicRef; }
+    public void setTargetPublicRef(String targetPublicRef) { this.targetPublicRef = targetPublicRef; }
+}
+```
+
+### `src/main/java/com/um/springbootprojstructure/dto/AdminUserMergeResultResponse.java`
+```java
+package com.um.springbootprojstructure.dto;
+
+import java.util.ArrayList;
+import java.util.List;
+
+public class AdminUserMergeResultResponse {
+
+    private String sourcePublicRef;
+    private String targetPublicRef;
+
+    private String finalFirstName;
+    private String finalLastName;
+    private String finalEmail;
+    private boolean finalActive;
+
+    private List<String> actions = new ArrayList<>();
+
+    public AdminUserMergeResultResponse() {}
+
+    public String getSourcePublicRef() { return sourcePublicRef; }
+    public void setSourcePublicRef(String sourcePublicRef) { this.sourcePublicRef = sourcePublicRef; }
+
+    public String getTargetPublicRef() { return targetPublicRef; }
+    public void setTargetPublicRef(String targetPublicRef) { this.targetPublicRef = targetPublicRef; }
+
+    public String getFinalFirstName() { return finalFirstName; }
+    public void setFinalFirstName(String finalFirstName) { this.finalFirstName = finalFirstName; }
+
+    public String getFinalLastName() { return finalLastName; }
+    public void setFinalLastName(String finalLastName) { this.finalLastName = finalLastName; }
+
+    public String getFinalEmail() { return finalEmail; }
+    public void setFinalEmail(String finalEmail) { this.finalEmail = finalEmail; }
+
+    public boolean isFinalActive() { return finalActive; }
+    public void setFinalActive(boolean finalActive) { this.finalActive = finalActive; }
+
+    public List<String> getActions() { return actions; }
+    public void setActions(List<String> actions) { this.actions = actions; }
+}
+```
+
+---
+
+## 2) Service API + implementation
+
+### `src/main/java/com/um/springbootprojstructure/service/AdminUserService.java`
+```java
+package com.um.springbootprojstructure.service;
+
+import com.um.springbootprojstructure.dto.AdminUserMergeResultResponse;
+
+public interface AdminUserService {
+    AdminUserMergeResultResponse mergeUsers(String sourcePublicRef, String targetPublicRef);
+}
+```
+
+### `src/main/java/com/um/springbootprojstructure/service/AdminUserServiceImpl.java`
+```java
+package com.um.springbootprojstructure.service;
+
+import com.um.springbootprojstructure.dto.AdminUserMergeResultResponse;
+import com.um.springbootprojstructure.entity.Role;
+import com.um.springbootprojstructure.entity.User;
+import com.um.springbootprojstructure.repository.UserRepository;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.ArrayList;
+
+@Service
+@Transactional
+public class AdminUserServiceImpl implements AdminUserService {
+
+    private final UserRepository userRepository;
+    private final PromptLogService promptLogService;
+
+    public AdminUserServiceImpl(UserRepository userRepository, PromptLogService promptLogService) {
+        this.userRepository = userRepository;
+        this.promptLogService = promptLogService;
+    }
+
+    @Override
+    public AdminUserMergeResultResponse mergeUsers(String sourcePublicRef, String targetPublicRef) {
+        promptLogService.logPrompt("Task: mergeUsers source=" + sourcePublicRef + " target=" + targetPublicRef);
+
+        if (sourcePublicRef.equals(targetPublicRef)) {
+            throw new IllegalArgumentException("sourcePublicRef and targetPublicRef must be different");
+        }
+
+        User source = userRepository.findByPublicRef(sourcePublicRef)
+                .orElseThrow(() -> new IllegalArgumentException("Source user not found: " + sourcePublicRef));
+        User target = userRepository.findByPublicRef(targetPublicRef)
+                .orElseThrow(() -> new IllegalArgumentException("Target user not found: " + targetPublicRef));
+
+        AdminUserMergeResultResponse result = new AdminUserMergeResultResponse();
+        result.setSourcePublicRef(sourcePublicRef);
+        result.setTargetPublicRef(targetPublicRef);
+        result.setActions(new ArrayList<>());
+
+        // Consolidation rules (simple, deterministic):
+        // - Prefer target values if present, otherwise take from source
+        if (isBlank(target.getFirstName()) && !isBlank(source.getFirstName())) {
+            target.setFirstName(source.getFirstName());
+            result.getActions().add("Copied firstName from source -> target");
+        }
+
+        if (isBlank(target.getLastName()) && !isBlank(source.getLastName())) {
+            target.setLastName(source.getLastName());
+            result.getActions().add("Copied lastName from source -> target");
+        }
+
+        // Email: cannot have two different emails on one account in this model.
+        // Rule:
+        // - If target email blank (shouldn't happen because nullable=false), copy from source.
+        // - If both exist and different, keep target and record action.
+        if (isBlank(target.getEmail()) && !isBlank(source.getEmail())) {
+            target.setEmail(source.getEmail());
+            result.getActions().add("Copied email from source -> target");
+        } else if (!equalsIgnoreCase(target.getEmail(), source.getEmail())) {
+            result.getActions().add("Kept target email; source email differs (" + source.getEmail() + ")");
+        }
+
+        // Active: if either is active -> keep active true (so user doesn't lose access)
+        if (!target.isActive() && source.isActive()) {
+            target.setActive(true);
+            result.getActions().add("Activated target because source was active");
+        }
+
+        // Role: keep the highest privilege (ADMIN wins)
+        if (target.getRole() != Role.ADMIN && source.getRole() == Role.ADMIN) {
+            target.setRole(Role.ADMIN);
+            result.getActions().add("Upgraded target role to ADMIN based on source role");
+        }
+
+        // Password: if target has no passwordHash (shouldn't happen after we added not-null),
+        // copy from source. Otherwise keep target.
+        if (isBlank(target.getPasswordHash()) && !isBlank(source.getPasswordHash())) {
+            target.setPasswordHash(source.getPasswordHash());
+            result.getActions().add("Copied passwordHash from source -> target");
+        } else {
+            result.getActions().add("Kept target passwordHash");
+        }
+
+        // Persist target changes
+        userRepository.save(target);
+
+        // Source account handling:
+        // For now: deactivate the source account (preserve record, avoid email/publicRef reuse issues)
+        if (source.isActive()) {
+            source.setActive(false);
+            userRepository.save(source);
+            result.getActions().add("Deactivated source account after merge");
+        } else {
+            result.getActions().add("Source account already inactive");
+        }
+
+        result.setFinalFirstName(target.getFirstName());
+        result.setFinalLastName(target.getLastName());
+        result.setFinalEmail(target.getEmail());
+        result.setFinalActive(target.isActive());
+
+        return result;
+    }
+
+    private boolean isBlank(String s) {
+        return s == null || s.trim().isEmpty();
+    }
+
+    private boolean equalsIgnoreCase(String a, String b) {
+        if (a == null && b == null) return true;
+        if (a == null || b == null) return false;
+        return a.equalsIgnoreCase(b);
+    }
+}
+```
+
+**Important note:** with the current schema, `email` and `publicRef` are unique and `email` is non-null. This merge implementation therefore:
+- **keeps the target email** when the two differ (and logs it in actions)
+- **deactivates** source rather than deleting it (safer and avoids uniqueness reuse)
+
+If you later add related tables (addresses, orders, etc.), we’ll extend merge to re-point foreign keys from source → target.
+
+---
+
+## 3) Admin controller endpoint
+
+### `src/main/java/com/um/springbootprojstructure/controller/AdminUserController.java`
+```java
+package com.um.springbootprojstructure.controller;
+
+import com.um.springbootprojstructure.dto.AdminUserMergeRequest;
+import com.um.springbootprojstructure.dto.AdminUserMergeResultResponse;
+import com.um.springbootprojstructure.service.AdminUserService;
+import com.um.springbootprojstructure.service.PromptLogService;
+import jakarta.validation.Valid;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/api/admin/users")
+public class AdminUserController {
+
+    private final AdminUserService adminUserService;
+    private final PromptLogService promptLogService;
+
+    public AdminUserController(AdminUserService adminUserService, PromptLogService promptLogService) {
+        this.adminUserService = adminUserService;
+        this.promptLogService = promptLogService;
+    }
+
+    /**
+     * REQUIRED:
+     * POST /api/admin/users/merge
+     */
+    @PostMapping("/merge")
+    public AdminUserMergeResultResponse merge(@Valid @RequestBody AdminUserMergeRequest request) {
+        promptLogService.logPrompt("HTTP POST /api/admin/users/merge source=" +
+                request.getSourcePublicRef() + " target=" + request.getTargetPublicRef());
+        return adminUserService.mergeUsers(request.getSourcePublicRef(), request.getTargetPublicRef());
+    }
+}
+```
+
+---
+
+## 4) (Recommended) Secure this as ADMIN-only
+You already have roles (USER/ADMIN) but you don’t yet have a JWT auth filter that protects routes. Two options:
+
+1) **Do it properly now**: add JWT authentication filter and restrict `/api/admin/**` to `ROLE_ADMIN`.
+2) Leave it open temporarily.
+
+If you want option (1), say “secure admin endpoints now” and I’ll add:
+- `JwtAuthenticationFilter`
+- configure SecurityFilterChain to require ADMIN on `/api/admin/**`
+
+---
+
+## 5) Example request/response
+
+### Request
+```bash
+curl -s -X POST http://localhost:8080/api/admin/users/merge \
+  -H "Content-Type: application/json" \
+  -d '{"sourcePublicRef":"SOURCE-REF","targetPublicRef":"TARGET-REF"}'
+```
+
+### Response (example)
+```json
+{
+  "sourcePublicRef": "SOURCE-REF",
+  "targetPublicRef": "TARGET-REF",
+  "finalFirstName": "Jane",
+  "finalLastName": "Doe",
+  "finalEmail": "jane@example.com",
+  "finalActive": true,
+  "actions": [
+    "Copied lastName from source -> target",
+    "Kept target email; source email differs (jane.old@example.com)",
+    "Upgraded target role to ADMIN based on source role",
+    "Kept target passwordHash",
+    "Deactivated source account after merge"
+  ]
+}
+```
+
+---
+
+### Clarification needed (affects merge rules)
+When source and target have conflicting non-empty values (e.g., firstName differs), should the system:
+- always **keep target** (current behavior), or
+- allow choosing per-field (e.g., `preferSource=true` or a `fieldSelection` object in request)?
+user
+The system shall provide PUT /api/admin/users/{id}/role to modify a user's role and return the updated role assignment.
+assistant
+## 1) DTOs
+
+### `src/main/java/com/um/springbootprojstructure/dto/UpdateUserRoleRequest.java`
+```java
+package com.um.springbootprojstructure.dto;
+
+import com.um.springbootprojstructure.entity.Role;
+import jakarta.validation.constraints.NotNull;
+
+public class UpdateUserRoleRequest {
+
+    @NotNull
+    private Role role;
+
+    public UpdateUserRoleRequest() {}
+
+    public Role getRole() { return role; }
+    public void setRole(Role role) { this.role = role; }
+}
+```
+
+### `src/main/java/com/um/springbootprojstructure/dto/UpdateUserRoleResponse.java`
+```java
+package com.um.springbootprojstructure.dto;
+
+import com.um.springbootprojstructure.entity.Role;
+
+public class UpdateUserRoleResponse {
+    private Long id;
+    private String publicRef;
+    private Role role;
+
+    public UpdateUserRoleResponse() {}
+
+    public UpdateUserRoleResponse(Long id, String publicRef, Role role) {
+        this.id = id;
+        this.publicRef = publicRef;
+        this.role = role;
+    }
+
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+
+    public String getPublicRef() { return publicRef; }
+    public void setPublicRef(String publicRef) { this.publicRef = publicRef; }
+
+    public Role getRole() { return role; }
+    public void setRole(Role role) { this.role = role; }
+}
+```
+
+---
+
+## 2) Service
+
+### `src/main/java/com/um/springbootprojstructure/service/AdminUserService.java`
+Add:
+```java
+import com.um.springbootprojstructure.dto.UpdateUserRoleResponse;
+import com.um.springbootprojstructure.entity.Role;
+
+UpdateUserRoleResponse updateUserRole(Long id, Role role);
+```
+
+### Update `src/main/java/com/um/springbootprojstructure/service/AdminUserServiceImpl.java`
+Add imports:
+```java
+import com.um.springbootprojstructure.dto.UpdateUserRoleResponse;
+```
+
+Add method:
+```java
+@Override
+public UpdateUserRoleResponse updateUserRole(Long id, Role role) {
+    promptLogService.logPrompt("Task: updateUserRole called with id=" + id + " role=" + role);
+
+    User user = userRepository.findById(id)
+            .orElseThrow(() -> new IllegalArgumentException("User not found: " + id));
+
+    user.setRole(role);
+    User saved = userRepository.save(user);
+
+    return new UpdateUserRoleResponse(saved.getId(), saved.getPublicRef(), saved.getRole());
+}
+```
+
+Full class still compiles alongside your existing `mergeUsers` method.
+
+---
+
+## 3) Controller endpoint
+
+### Update `src/main/java/com/um/springbootprojstructure/controller/AdminUserController.java`
+Add imports:
+```java
+import com.um.springbootprojstructure.dto.UpdateUserRoleRequest;
+import com.um.springbootprojstructure.dto.UpdateUserRoleResponse;
+```
+
+Add endpoint:
+```java
+@PutMapping("/{id}/role")
+public UpdateUserRoleResponse updateRole(@PathVariable Long id,
+                                        @Valid @RequestBody UpdateUserRoleRequest request) {
+    promptLogService.logPrompt("HTTP PUT /api/admin/users/" + id + "/role role=" + request.getRole());
+    return adminUserService.updateUserRole(id, request.getRole());
+}
+```
+
+So the controller becomes (showing relevant methods):
+```java
+package com.um.springbootprojstructure.controller;
+
+import com.um.springbootprojstructure.dto.AdminUserMergeRequest;
+import com.um.springbootprojstructure.dto.AdminUserMergeResultResponse;
+import com.um.springbootprojstructure.dto.UpdateUserRoleRequest;
+import com.um.springbootprojstructure.dto.UpdateUserRoleResponse;
+import com.um.springbootprojstructure.service.AdminUserService;
+import com.um.springbootprojstructure.service.PromptLogService;
+import jakarta.validation.Valid;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/api/admin/users")
+public class AdminUserController {
+
+    private final AdminUserService adminUserService;
+    private final PromptLogService promptLogService;
+
+    public AdminUserController(AdminUserService adminUserService, PromptLogService promptLogService) {
+        this.adminUserService = adminUserService;
+        this.promptLogService = promptLogService;
+    }
+
+    @PostMapping("/merge")
+    public AdminUserMergeResultResponse merge(@Valid @RequestBody AdminUserMergeRequest request) {
+        promptLogService.logPrompt("HTTP POST /api/admin/users/merge source=" +
+                request.getSourcePublicRef() + " target=" + request.getTargetPublicRef());
+        return adminUserService.mergeUsers(request.getSourcePublicRef(), request.getTargetPublicRef());
+    }
+
+    @PutMapping("/{id}/role")
+    public UpdateUserRoleResponse updateRole(@PathVariable Long id,
+                                            @Valid @RequestBody UpdateUserRoleRequest request) {
+        promptLogService.logPrompt("HTTP PUT /api/admin/users/" + id + "/role role=" + request.getRole());
+        return adminUserService.updateUserRole(id, request.getRole());
+    }
+}
+```
+
+---
+
+## 4) Example request
+
+```bash
+curl -s -X PUT http://localhost:8080/api/admin/users/1/role \
+  -H "Content-Type: application/json" \
+  -d '{"role":"ADMIN"}'
+```
+
+Response:
+```json
+{
+  "id": 1,
+  "publicRef": "9d31b97d-4dbf-4c19-8da5-bc3109ee8e94",
+  "role": "ADMIN"
+}
+```
+
+---
+
+## 5) Recommended next: secure admin endpoints
+Right now your security config permits all other requests. To meet real “ADMIN” semantics, the next step is adding a JWT auth filter and restricting:
+- `/api/admin/**` -> `hasRole('ADMIN')`
+
+Tell me to “secure admin endpoints now” and I’ll add the required filter + config changes.
+user
+The system shall provide POST /api/auth/logout to invalidate the current session and return a JSON confirmation response.
+assistant
+## Implement `POST /api/auth/logout` (invalidate current session)
+
+With **stateless JWT**, “logout” must invalidate the token(s). The usual approach is a **server-side blacklist** for refresh tokens (and optionally access tokens). Below adds:
+
+- `RefreshToken` entity/table storing refresh tokens + revoked flag
+- `/api/auth/logout` revokes the provided refresh token (or the current one)
+- `/api/auth/refresh` only works for non-revoked refresh tokens
+- JSON confirmation response
+
+This fits your “invalidate the current session” requirement.
+
+---
+
+## 1) Entity + repository (store refresh tokens)
+
+### `src/main/java/com/um/springbootprojstructure/entity/RefreshToken.java`
+```java
+package com.um.springbootprojstructure.entity;
+
+import jakarta.persistence.*;
+
+import java.time.OffsetDateTime;
+
+@Entity
+@Table(name = "refresh_tokens", indexes = {
+        @Index(name = "idx_refresh_tokens_token", columnList = "token", unique = true),
+        @Index(name = "idx_refresh_tokens_user_id", columnList = "userId")
+})
+public class RefreshToken {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(nullable = false, unique = true, length = 2000)
+    private String token;
+
+    @Column(nullable = false)
+    private Long userId;
+
+    @Column(nullable = false)
+    private boolean revoked = false;
+
+    @Column(nullable = false, updatable = false)
+    private OffsetDateTime createdAt;
+
+    @Column(nullable = true)
+    private OffsetDateTime revokedAt;
+
+    @PrePersist
+    void prePersist() {
+        this.createdAt = OffsetDateTime.now();
+    }
+
+    public RefreshToken() {}
+
+    public RefreshToken(String token, Long userId) {
+        this.token = token;
+        this.userId = userId;
+    }
+
+    public Long getId() { return id; }
+
+    public String getToken() { return token; }
+    public void setToken(String token) { this.token = token; }
+
+    public Long getUserId() { return userId; }
+    public void setUserId(Long userId) { this.userId = userId; }
+
+    public boolean isRevoked() { return revoked; }
+    public void setRevoked(boolean revoked) { this.revoked = revoked; }
+
+    public OffsetDateTime getCreatedAt() { return createdAt; }
+
+    public OffsetDateTime getRevokedAt() { return revokedAt; }
+    public void setRevokedAt(OffsetDateTime revokedAt) { this.revokedAt = revokedAt; }
+}
+```
+
+### `src/main/java/com/um/springbootprojstructure/repository/RefreshTokenRepository.java`
+```java
+package com.um.springbootprojstructure.repository;
+
+import com.um.springbootprojstructure.entity.RefreshToken;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+import java.util.Optional;
+
+public interface RefreshTokenRepository extends JpaRepository<RefreshToken, Long> {
+    Optional<RefreshToken> findByToken(String token);
+}
+```
+
+---
+
+## 2) Logout confirmation DTO
+
+### `src/main/java/com/um/springbootprojstructure/dto/LogoutResponse.java`
+```java
+package com.um.springbootprojstructure.dto;
+
+public class LogoutResponse {
+    private boolean success;
+    private String message;
+
+    public LogoutResponse() {}
+
+    public LogoutResponse(boolean success, String message) {
+        this.success = success;
+        this.message = message;
+    }
+
+    public boolean isSuccess() { return success; }
+    public void setSuccess(boolean success) { this.success = success; }
+
+    public String getMessage() { return message; }
+    public void setMessage(String message) { this.message = message; }
+}
+```
+
+---
+
+## 3) Auth service: persist refresh tokens + revoke on logout
+
+### Update `src/main/java/com/um/springbootprojstructure/service/AuthService.java`
+Add:
+```java
+import com.um.springbootprojstructure.dto.LogoutResponse;
+
+LogoutResponse logout(String refreshToken);
+```
+
+### Update `src/main/java/com/um/springbootprojstructure/service/AuthServiceImpl.java`
+
+Add imports:
+```java
+import com.um.springbootprojstructure.dto.LogoutResponse;
+import com.um.springbootprojstructure.entity.RefreshToken;
+import com.um.springbootprojstructure.repository.RefreshTokenRepository;
+
+import java.time.OffsetDateTime;
+```
+
+Add repository field + constructor param:
+```java
+private final RefreshTokenRepository refreshTokenRepository;
+
+public AuthServiceImpl(AuthenticationManager authenticationManager,
+                       UserRepository userRepository,
+                       JwtService jwtService,
+                       PromptLogService promptLogService,
+                       RefreshTokenRepository refreshTokenRepository) {
+    this.authenticationManager = authenticationManager;
+    this.userRepository = userRepository;
+    this.jwtService = jwtService;
+    this.promptLogService = promptLogService;
+    this.refreshTokenRepository = refreshTokenRepository;
+}
+```
+
+#### Update `login` to store issued refresh token
+Replace the end of `login()` with:
+
+```java
+String access = jwtService.issueAccessToken(user.getPublicRef(), user.getEmail(), user.getRole());
+
+String refresh = jwtService.issueRefreshToken(user.getPublicRef());
+refreshTokenRepository.save(new RefreshToken(refresh, user.getId()));
+
+return new AuthTokenResponse(access, refresh);
+```
+
+#### Update `refresh()` to require token exists and is not revoked + rotate safely
+Replace your current `refresh()` with:
+
+```java
+@Override
+public AuthTokenResponse refresh(String refreshToken) {
+    promptLogService.logPrompt("Task: refresh called");
+
+    Claims claims = jwtService.parse(refreshToken);
+    if (!jwtService.isRefreshToken(claims)) {
+        throw new IllegalArgumentException("Provided token is not a refresh token");
+    }
+
+    RefreshToken stored = refreshTokenRepository.findByToken(refreshToken)
+            .orElseThrow(() -> new IllegalArgumentException("Refresh token is not recognized"));
+
+    if (stored.isRevoked()) {
+        throw new IllegalArgumentException("Refresh token is revoked");
+    }
+
+    String publicRef = jwtService.getSubject(claims);
+    User user = userRepository.findByPublicRef(publicRef)
+            .orElseThrow(() -> new IllegalArgumentException("User not found for publicRef: " + publicRef));
+
+    if (!user.isActive()) {
+        throw new IllegalArgumentException("User is deactivated");
+    }
+
+    // Rotate: revoke the current refresh token and issue a new one
+    stored.setRevoked(true);
+    stored.setRevokedAt(OffsetDateTime.now());
+    refreshTokenRepository.save(stored);
+
+    String newAccess = jwtService.issueAccessToken(user.getPublicRef(), user.getEmail(), user.getRole());
+    String newRefresh = jwtService.issueRefreshToken(user.getPublicRef());
+    refreshTokenRepository.save(new RefreshToken(newRefresh, user.getId()));
+
+    return new AuthTokenResponse(newAccess, newRefresh);
+}
+```
+
+#### Add `logout()` implementation
+Add to `AuthServiceImpl`:
+
+```java
+@Override
+public LogoutResponse logout(String refreshToken) {
+    promptLogService.logPrompt("Task: logout called");
+
+    RefreshToken stored = refreshTokenRepository.findByToken(refreshToken)
+            .orElseThrow(() -> new IllegalArgumentException("Refresh token is not recognized"));
+
+    if (stored.isRevoked()) {
+        return new LogoutResponse(true, "Already logged out");
+    }
+
+    stored.setRevoked(true);
+    stored.setRevokedAt(OffsetDateTime.now());
+    refreshTokenRepository.save(stored);
+
+    return new LogoutResponse(true, "Logged out successfully");
+}
+```
+
+---
+
+## 4) Controller: `POST /api/auth/logout`
+
+### `src/main/java/com/um/springbootprojstructure/dto/LogoutRequest.java`
+```java
+package com.um.springbootprojstructure.dto;
+
+import jakarta.validation.constraints.NotBlank;
+
+public class LogoutRequest {
+
+    @NotBlank
+    private String refreshToken;
+
+    public LogoutRequest() {}
+
+    public String getRefreshToken() { return refreshToken; }
+    public void setRefreshToken(String refreshToken) { this.refreshToken = refreshToken; }
+}
+```
+
+### Update `src/main/java/com/um/springbootprojstructure/controller/AuthController.java`
+Add imports:
+```java
+import com.um.springbootprojstructure.dto.LogoutRequest;
+import com.um.springbootprojstructure.dto.LogoutResponse;
+```
+
+Add endpoint:
+```java
+@PostMapping("/logout")
+public LogoutResponse logout(@Valid @RequestBody LogoutRequest request) {
+    promptLogService.logPrompt("HTTP POST /api/auth/logout");
+    return authService.logout(request.getRefreshToken());
+}
+```
+
+So `/api/auth` supports:
+- `POST /api/auth/login`
+- `POST /api/auth/refresh`
+- **`POST /api/auth/logout`** ✅
+
+---
+
+## 5) Example calls
+
+### Login
+```bash
+curl -s -X POST http://localhost:8080/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@example.com","password":"admin123"}'
+```
+
+### Logout (invalidate session = revoke refresh token)
+```bash
+curl -s -X POST http://localhost:8080/api/auth/logout \
+  -H "Content-Type: application/json" \
+  -d '{"refreshToken":"<refreshTokenFromLogin>"}'
+```
+
+### Refresh after logout (should fail)
+```bash
+curl -s -X POST http://localhost:8080/api/auth/refresh \
+  -H "Content-Type: application/json" \
+  -d '{"refreshToken":"<refreshTokenFromLogin>"}'
+```
+
+---
+
+## One clarification (affects “current session”)
+For logout, do you want to:
+1) revoke **only the provided refresh token** (current implementation), or
+2) revoke **all refresh tokens for that user** (log out of all devices)?
+
+If you want (2), I’ll add `revokeAllByUserId` query to the repository and implement it.
+user
+The system shall provide POST /api/admin/users/import-xml to support migration from a legacy user-management system. The endpoint shall accept an XML export file containing legacy user records, parse the file, create corresponding user accounts in the new system, and return a JSON summary of imported, skipped, and rejected records.
+assistant
+## Implement `POST /api/admin/users/import-xml` (XML migration import)
+
+This adds:
+- Multipart upload endpoint accepting an XML file
+- XML parsing (JAXB)
+- Create users when valid; **skip** when already exists; **reject** when invalid
+- JSON summary response: imported / skipped / rejected counts + details
+
+### Assumptions about legacy XML format
+To keep this complete, I’m defining a simple legacy export format:
+
+```xml
+<users>
+  <user>
+    <email>john@example.com</email>
+    <firstName>John</firstName>
+    <lastName>Doe</lastName>
+    <active>true</active>
+    <role>USER</role>
+  </user>
+</users>
+```
+
+If your XML is different, paste a sample and I’ll adjust the JAXB classes.
+
+---
+
+# 1) Gradle: add JAXB runtime (Spring Boot 3 / Java 17)
+
+### Update `build.gradle`
+Add:
+```gradle
+dependencies {
+    // ...existing...
+
+    // JAXB for XML parsing (Java 17+)
+    implementation 'org.glassfish.jaxb:jaxb-runtime:4.0.5'
+}
+```
+
+---
+
+# 2) DTOs for import result
+
+### `src/main/java/com/um/springbootprojstructure/dto/XmlImportRejectedRecord.java`
+```java
+package com.um.springbootprojstructure.dto;
+
+public class XmlImportRejectedRecord {
+    private int index;
+    private String email;
+    private String reason;
+
+    public XmlImportRejectedRecord() {}
+
+    public XmlImportRejectedRecord(int index, String email, String reason) {
+        this.index = index;
+        this.email = email;
+        this.reason = reason;
+    }
+
+    public int getIndex() { return index; }
+    public void setIndex(int index) { this.index = index; }
+
+    public String getEmail() { return email; }
+    public void setEmail(String email) { this.email = email; }
+
+    public String getReason() { return reason; }
+    public void setReason(String reason) { this.reason = reason; }
+}
+```
+
+### `src/main/java/com/um/springbootprojstructure/dto/XmlImportSummaryResponse.java`
+```java
+package com.um.springbootprojstructure.dto;
+
+import java.util.ArrayList;
+import java.util.List;
+
+public class XmlImportSummaryResponse {
+
+    private int totalRecords;
+    private int importedCount;
+    private int skippedCount;
+    private int rejectedCount;
+
+    private List<String> importedPublicRefs = new ArrayList<>();
+    private List<String> skippedEmails = new ArrayList<>();
+    private List<XmlImportRejectedRecord> rejected = new ArrayList<>();
+
+    public XmlImportSummaryResponse() {}
+
+    public int getTotalRecords() { return totalRecords; }
+    public void setTotalRecords(int totalRecords) { this.totalRecords = totalRecords; }
+
+    public int getImportedCount() { return importedCount; }
+    public void setImportedCount(int importedCount) { this.importedCount = importedCount; }
+
+    public int getSkippedCount() { return skippedCount; }
+    public void setSkippedCount(int skippedCount) { this.skippedCount = skippedCount; }
+
+    public int getRejectedCount() { return rejectedCount; }
+    public void setRejectedCount(int rejectedCount) { this.rejectedCount = rejectedCount; }
+
+    public List<String> getImportedPublicRefs() { return importedPublicRefs; }
+    public void setImportedPublicRefs(List<String> importedPublicRefs) { this.importedPublicRefs = importedPublicRefs; }
+
+    public List<String> getSkippedEmails() { return skippedEmails; }
+    public void setSkippedEmails(List<String> skippedEmails) { this.skippedEmails = skippedEmails; }
+
+    public List<XmlImportRejectedRecord> getRejected() { return rejected; }
+    public void setRejected(List<XmlImportRejectedRecord> rejected) { this.rejected = rejected; }
+}
+```
+
+---
+
+# 3) JAXB model for legacy XML
+
+### `src/main/java/com/um/springbootprojstructure/dto/legacy/LegacyUsersExport.java`
+```java
+package com.um.springbootprojstructure.dto.legacy;
+
+import jakarta.xml.bind.annotation.*;
+
+import java.util.ArrayList;
+import java.util.List;
+
+@XmlRootElement(name = "users")
+@XmlAccessorType(XmlAccessType.FIELD)
+public class LegacyUsersExport {
+
+    @XmlElement(name = "user")
+    private List<LegacyUserRecord> users = new ArrayList<>();
+
+    public List<LegacyUserRecord> getUsers() { return users; }
+    public void setUsers(List<LegacyUserRecord> users) { this.users = users; }
+}
+```
+
+### `src/main/java/com/um/springbootprojstructure/dto/legacy/LegacyUserRecord.java`
+```java
+package com.um.springbootprojstructure.dto.legacy;
+
+import jakarta.xml.bind.annotation.*;
+
+@XmlAccessorType(XmlAccessType.FIELD)
+public class LegacyUserRecord {
+
+    @XmlElement(name = "email")
+    private String email;
+
+    @XmlElement(name = "firstName")
+    private String firstName;
+
+    @XmlElement(name = "lastName")
+    private String lastName;
+
+    @XmlElement(name = "active")
+    private Boolean active;
+
+    @XmlElement(name = "role")
+    private String role; // "USER" / "ADMIN" (optional)
+
+    public String getEmail() { return email; }
+    public void setEmail(String email) { this.email = email; }
+
+    public String getFirstName() { return firstName; }
+    public void setFirstName(String firstName) { this.firstName = firstName; }
+
+    public String getLastName() { return lastName; }
+    public void setLastName(String lastName) { this.lastName = lastName; }
+
+    public Boolean getActive() { return active; }
+    public void setActive(Boolean active) { this.active = active; }
+
+    public String getRole() { return role; }
+    public void setRole(String role) { this.role = role; }
+}
+```
+
+> Location note: this is under `dto/legacy` (still within your main package root).
+
+---
+
+# 4) Admin import service
+
+### `src/main/java/com/um/springbootprojstructure/service/AdminUserImportService.java`
+```java
+package com.um.springbootprojstructure.service;
+
+import com.um.springbootprojstructure.dto.XmlImportSummaryResponse;
+import org.springframework.web.multipart.MultipartFile;
+
+public interface AdminUserImportService {
+    XmlImportSummaryResponse importLegacyUsersXml(MultipartFile file);
+}
+```
+
+### `src/main/java/com/um/springbootprojstructure/service/AdminUserImportServiceImpl.java`
+```java
+package com.um.springbootprojstructure.service;
+
+import com.um.springbootprojstructure.dto.XmlImportRejectedRecord;
+import com.um.springbootprojstructure.dto.XmlImportSummaryResponse;
+import com.um.springbootprojstructure.dto.legacy.LegacyUserRecord;
+import com.um.springbootprojstructure.dto.legacy.LegacyUsersExport;
+import com.um.springbootprojstructure.entity.Role;
+import com.um.springbootprojstructure.entity.User;
+import com.um.springbootprojstructure.repository.UserRepository;
+import jakarta.xml.bind.JAXBContext;
+import jakarta.xml.bind.Unmarshaller;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.io.InputStream;
+import java.util.regex.Pattern;
+
+@Service
+@Transactional
+public class AdminUserImportServiceImpl implements AdminUserImportService {
+
+    private final UserRepository userRepository;
+    private final PasswordEncoder passwordEncoder;
+    private final PromptLogService promptLogService;
+
+    private static final Pattern EMAIL_PATTERN =
+            Pattern.compile("^[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}$", Pattern.CASE_INSENSITIVE);
+
+    public AdminUserImportServiceImpl(UserRepository userRepository,
+                                     PasswordEncoder passwordEncoder,
+                                     PromptLogService promptLogService) {
+        this.userRepository = userRepository;
+        this.passwordEncoder = passwordEncoder;
+        this.promptLogService = promptLogService;
+    }
+
+    @Override
+    public XmlImportSummaryResponse importLegacyUsersXml(MultipartFile file) {
+        promptLogService.logPrompt("Task: importLegacyUsersXml filename=" + file.getOriginalFilename()
+                + " size=" + file.getSize());
+
+        if (file == null || file.isEmpty()) {
+            throw new IllegalArgumentException("File is required");
+        }
+        String name = file.getOriginalFilename() == null ? "" : file.getOriginalFilename().toLowerCase();
+        if (!name.endsWith(".xml")) {
+            // still allow, but helps users
+            promptLogService.logPrompt("Import warning: uploaded file does not end with .xml");
+        }
+
+        LegacyUsersExport export = unmarshal(file);
+
+        XmlImportSummaryResponse summary = new XmlImportSummaryResponse();
+        summary.setTotalRecords(export.getUsers() == null ? 0 : export.getUsers().size());
+
+        if (export.getUsers() == null) {
+            return summary;
+        }
+
+        int index = 0;
+        for (LegacyUserRecord rec : export.getUsers()) {
+            index++;
+
+            String email = safeTrim(rec.getEmail());
+            String firstName = safeTrim(rec.getFirstName());
+            String lastName = safeTrim(rec.getLastName());
+            boolean active = rec.getActive() == null || rec.getActive(); // default true if missing
+            Role role = parseRole(rec.getRole());
+
+            // Validate
+            String validationError = validate(email, firstName, lastName);
+            if (validationError != null) {
+                summary.getRejected().add(new XmlImportRejectedRecord(index, email, validationError));
+                continue;
+            }
+
+            // Skip if exists
+            if (userRepository.existsByEmail(email)) {
+                summary.getSkippedEmails().add(email);
+                continue;
+            }
+
+            // Create new user
+            User user = new User();
+            user.setEmail(email);
+            user.setFirstName(firstName);
+            user.setLastName(lastName);
+            user.setActive(active);
+            user.setRole(role);
+
+            // Legacy systems usually cannot provide passwords safely. Assign a random/temporary password.
+            // For migration you might later add "invite / reset password" flow.
+            String tempPassword = "temp-" + java.util.UUID.randomUUID();
+            user.setPasswordHash(passwordEncoder.encode(tempPassword));
+
+            User saved = userRepository.save(user);
+            summary.getImportedPublicRefs().add(saved.getPublicRef());
+        }
+
+        summary.setImportedCount(summary.getImportedPublicRefs().size());
+        summary.setSkippedCount(summary.getSkippedEmails().size());
+        summary.setRejectedCount(summary.getRejected().size());
+
+        return summary;
+    }
+
+    private LegacyUsersExport unmarshal(MultipartFile file) {
+        try (InputStream is = file.getInputStream()) {
+            JAXBContext ctx = JAXBContext.newInstance(LegacyUsersExport.class);
+            Unmarshaller unmarshaller = ctx.createUnmarshaller();
+            Object obj = unmarshaller.unmarshal(is);
+            return (LegacyUsersExport) obj;
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Failed to parse XML: " + e.getMessage(), e);
+        }
+    }
+
+    private String validate(String email, String firstName, String lastName) {
+        if (email == null || email.isBlank()) return "Missing email";
+        if (!EMAIL_PATTERN.matcher(email).matches()) return "Invalid email format";
+        if (firstName == null || firstName.isBlank()) return "Missing firstName";
+        if (lastName == null || lastName.isBlank()) return "Missing lastName";
+        if (firstName.length() > 80) return "firstName too long (max 80)";
+        if (lastName.length() > 80) return "lastName too long (max 80)";
+        if (email.length() > 180) return "email too long (max 180)";
+        return null;
+    }
+
+    private Role parseRole(String roleText) {
+        if (roleText == null || roleText.isBlank()) return Role.USER;
+        try {
+            return Role.valueOf(roleText.trim().toUpperCase());
+        } catch (Exception e) {
+            // unknown role in legacy -> reject by treating as USER? safer to reject
+            // Here: reject would require per-record error; we keep USER to avoid losing data.
+            return Role.USER;
+        }
+    }
+
+    private String safeTrim(String s) {
+        return s == null ? null : s.trim();
+    }
+}
+```
+
+---
+
+# 5) Admin controller endpoint
+
+### Update `src/main/java/com/um/springbootprojstructure/controller/AdminUserController.java`
+Add imports:
+```java
+import com.um.springbootprojstructure.dto.XmlImportSummaryResponse;
+import com.um.springbootprojstructure.service.AdminUserImportService;
+import org.springframework.http.MediaType;
+import org.springframework.web.multipart.MultipartFile;
+```
+
+Add field + constructor param for the new service:
+```java
+private final AdminUserImportService adminUserImportService;
+
+public AdminUserController(AdminUserService adminUserService,
+                           AdminUserImportService adminUserImportService,
+                           PromptLogService promptLogService) {
+    this.adminUserService = adminUserService;
+    this.adminUserImportService = adminUserImportService;
+    this.promptLogService = promptLogService;
+}
+```
+
+Add the endpoint method:
+```java
+@PostMapping(value = "/import-xml", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+public XmlImportSummaryResponse importXml(@RequestPart("file") MultipartFile file) {
+    promptLogService.logPrompt("HTTP POST /api/admin/users/import-xml file=" + file.getOriginalFilename());
+    return adminUserImportService.importLegacyUsersXml(file);
+}
+```
+
+So your admin routes now include:
+- `POST /api/admin/users/merge`
+- `PUT /api/admin/users/{id}/role`
+- `POST /api/admin/users/import-xml` ✅
+
+---
+
+# 6) Example curl
+
+```bash
+curl -s -X POST "http://localhost:8080/api/admin/users/import-xml" \
+  -H "Content-Type: multipart/form-data" \
+  -F "file=@legacy-users.xml"
+```
+
+Example response:
+```json
+{
+  "totalRecords": 3,
+  "importedCount": 2,
+  "skippedCount": 1,
+  "rejectedCount": 0,
+  "importedPublicRefs": ["...","..."],
+  "skippedEmails": ["existing@example.com"],
+  "rejected": []
+}
+```
+
+---
+
+## Important follow-up: securing admin import
+Your security currently permits everything except auth endpoints are explicitly permitted; you haven’t added JWT authorization filter yet. If you want these admin endpoints truly restricted to ADMIN, tell me to “secure admin endpoints now” and I’ll add:
+- JWT authentication filter extracting `Authorization: Bearer ...`
+- role-based access rules: `/api/admin/**` -> `hasRole("ADMIN")`
+
+---
+
+## Clarify legacy XML format
+If you paste a snippet of your real legacy XML export, I can adjust the JAXB classes (`LegacyUsersExport`, `LegacyUserRecord`) to match it exactly.
+user
+The system shall provide POST /api/admin/users/validate-directory to validate imported user records against an enterprise LDAP directory. The endpoint shall accept the user identity attributes required for validation and return the matched directory result in JSON format.
+assistant
+## Add `POST /api/admin/users/validate-directory` (LDAP validation)
+
+This implements an admin endpoint that accepts identity attributes, queries LDAP, and returns the matched directory entry (or “not found / ambiguous”) as JSON.
+
+It uses Spring LDAP (`spring-boot-starter-ldap`). For local/dev without a real LDAP server, it also supports a **mock mode** driven by `application.properties`.
+
+---
+
+# 1) Gradle dependency
+
+### Update `build.gradle`
+Add:
+```gradle
+dependencies {
+    // ...existing...
+    implementation 'org.springframework.boot:spring-boot-starter-ldap'
+}
+```
+
+---
+
+# 2) Properties
+
+### Update `src/main/resources/application.properties`
+Add LDAP config + mock toggle:
+
+```properties
+# LDAP validation
+app.ldap.mock=true
+
+# Only used when app.ldap.mock=false
+app.ldap.url=ldap://localhost:389
+app.ldap.base-dn=dc=example,dc=com
+app.ldap.user-dn=cn=admin,dc=example,dc=com
+app.ldap.password=admin
+
+# Search settings (adjust for your directory)
+app.ldap.user-search-base=ou=people
+app.ldap.user-object-class=person
+```
+
+---
+
+# 3) Config: LdapTemplate (real mode)
+
+### `src/main/java/com/um/springbootprojstructure/config/LdapConfig.java`
+```java
+package com.um.springbootprojstructure.config;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.ldap.core.LdapTemplate;
+import org.springframework.ldap.core.support.LdapContextSource;
+
+@Configuration
+public class LdapConfig {
+
+    @Bean
+    public LdapContextSource contextSource(
+            @Value("${app.ldap.url}") String url,
+            @Value("${app.ldap.base-dn}") String baseDn,
+            @Value("${app.ldap.user-dn}") String userDn,
+            @Value("${app.ldap.password}") String password
+    ) {
+        LdapContextSource source = new LdapContextSource();
+        source.setUrl(url);
+        source.setBase(baseDn);
+        source.setUserDn(userDn);
+        source.setPassword(password);
+        source.afterPropertiesSet();
+        return source;
+    }
+
+    @Bean
+    public LdapTemplate ldapTemplate(LdapContextSource contextSource) {
+        return new LdapTemplate(contextSource);
+    }
+}
+```
+
+> If `app.ldap.mock=true`, we will not call LDAP anyway (but these beans can still exist).
+
+---
+
+# 4) DTOs
+
+### `src/main/java/com/um/springbootprojstructure/dto/DirectoryValidationRequest.java`
+```java
+package com.um.springbootprojstructure.dto;
+
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.Size;
+
+public class DirectoryValidationRequest {
+
+    // Accept any subset; service will decide query strategy.
+    @Email
+    @Size(max = 180)
+    private String email;
+
+    @Size(max = 80)
+    private String firstName;
+
+    @Size(max = 80)
+    private String lastName;
+
+    // e.g. employeeNumber, uid, sAMAccountName, etc.
+    @Size(max = 80)
+    private String employeeId;
+
+    public DirectoryValidationRequest() {}
+
+    public String getEmail() { return email; }
+    public void setEmail(String email) { this.email = email; }
+
+    public String getFirstName() { return firstName; }
+    public void setFirstName(String firstName) { this.firstName = firstName; }
+
+    public String getLastName() { return lastName; }
+    public void setLastName(String lastName) { this.lastName = lastName; }
+
+    public String getEmployeeId() { return employeeId; }
+    public void setEmployeeId(String employeeId) { this.employeeId = employeeId; }
+}
+```
+
+### `src/main/java/com/um/springbootprojstructure/dto/DirectoryMatchResponse.java`
+```java
+package com.um.springbootprojstructure.dto;
+
+import java.util.LinkedHashMap;
+import java.util.Map;
+
+public class DirectoryMatchResponse {
+
+    public enum Status {
+        MATCHED,
+        NOT_FOUND,
+        AMBIGUOUS,
+        ERROR
+    }
+
+    private Status status;
+    private String message;
+
+    // Common attributes returned if matched
+    private String dn;
+    private String uid;
+    private String email;
+    private String firstName;
+    private String lastName;
+    private String employeeId;
+
+    // raw attributes (optional but helpful)
+    private Map<String, Object> attributes = new LinkedHashMap<>();
+
+    public DirectoryMatchResponse() {}
+
+    public Status getStatus() { return status; }
+    public void setStatus(Status status) { this.status = status; }
+
+    public String getMessage() { return message; }
+    public void setMessage(String message) { this.message = message; }
+
+    public String getDn() { return dn; }
+    public void setDn(String dn) { this.dn = dn; }
+
+    public String getUid() { return uid; }
+    public void setUid(String uid) { this.uid = uid; }
+
+    public String getEmail() { return email; }
+    public void setEmail(String email) { this.email = email; }
+
+    public String getFirstName() { return firstName; }
+    public void setFirstName(String firstName) { this.firstName = firstName; }
+
+    public String getLastName() { return lastName; }
+    public void setLastName(String lastName) { this.lastName = lastName; }
+
+    public String getEmployeeId() { return employeeId; }
+    public void setEmployeeId(String employeeId) { this.employeeId = employeeId; }
+
+    public Map<String, Object> getAttributes() { return attributes; }
+    public void setAttributes(Map<String, Object> attributes) { this.attributes = attributes; }
+}
+```
+
+---
+
+# 5) Service
+
+### `src/main/java/com/um/springbootprojstructure/service/DirectoryValidationService.java`
+```java
+package com.um.springbootprojstructure.service;
+
+import com.um.springbootprojstructure.dto.DirectoryMatchResponse;
+import com.um.springbootprojstructure.dto.DirectoryValidationRequest;
+
+public interface DirectoryValidationService {
+    DirectoryMatchResponse validate(DirectoryValidationRequest request);
+}
+```
+
+### `src/main/java/com/um/springbootprojstructure/service/DirectoryValidationServiceImpl.java`
+```java
+package com.um.springbootprojstructure.service;
+
+import com.um.springbootprojstructure.dto.DirectoryMatchResponse;
+import com.um.springbootprojstructure.dto.DirectoryValidationRequest;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.ldap.NamingException;
+import org.springframework.ldap.core.AttributesMapper;
+import org.springframework.ldap.core.LdapTemplate;
+import org.springframework.ldap.filter.AndFilter;
+import org.springframework.ldap.filter.EqualsFilter;
+import org.springframework.stereotype.Service;
+
+import javax.naming.directory.Attributes;
+import java.util.List;
+import java.util.Map;
+
+@Service
+public class DirectoryValidationServiceImpl implements DirectoryValidationService {
+
+    private final LdapTemplate ldapTemplate;
+    private final PromptLogService promptLogService;
+
+    private final boolean mock;
+    private final String userSearchBase;
+    private final String userObjectClass;
+
+    public DirectoryValidationServiceImpl(LdapTemplate ldapTemplate,
+                                         PromptLogService promptLogService,
+                                         @Value("${app.ldap.mock:true}") boolean mock,
+                                         @Value("${app.ldap.user-search-base:ou=people}") String userSearchBase,
+                                         @Value("${app.ldap.user-object-class:person}") String userObjectClass) {
+        this.ldapTemplate = ldapTemplate;
+        this.promptLogService = promptLogService;
+        this.mock = mock;
+        this.userSearchBase = userSearchBase;
+        this.userObjectClass = userObjectClass;
+    }
+
+    @Override
+    public DirectoryMatchResponse validate(DirectoryValidationRequest request) {
+        promptLogService.logPrompt("Task: validateDirectory email=" + request.getEmail()
+                + " employeeId=" + request.getEmployeeId());
+
+        // basic guard: require at least one identity field
+        if (isBlank(request.getEmail()) && isBlank(request.getEmployeeId())
+                && (isBlank(request.getFirstName()) || isBlank(request.getLastName()))) {
+            throw new IllegalArgumentException("Provide email, employeeId, or both firstName and lastName");
+        }
+
+        if (mock) {
+            return mockResponse(request);
+        }
+
+        try {
+            AndFilter filter = new AndFilter();
+            filter.and(new EqualsFilter("objectClass", userObjectClass));
+
+            // Prefer strong identifiers
+            if (!isBlank(request.getEmployeeId())) {
+                // common attributes: employeeNumber / employeeID; adjust to your directory
+                filter.and(new EqualsFilter("employeeNumber", request.getEmployeeId().trim()));
+            } else if (!isBlank(request.getEmail())) {
+                // common attribute: mail
+                filter.and(new EqualsFilter("mail", request.getEmail().trim()));
+            } else {
+                // weaker match: givenName + sn
+                filter.and(new EqualsFilter("givenName", request.getFirstName().trim()));
+                filter.and(new EqualsFilter("sn", request.getLastName().trim()));
+            }
+
+            List<DirectoryMatchResponse> matches = ldapTemplate.search(
+                    userSearchBase,
+                    filter.encode(),
+                    (AttributesMapper<DirectoryMatchResponse>) attrs -> mapMatch(attrs)
+            );
+
+            if (matches.isEmpty()) {
+                DirectoryMatchResponse res = new DirectoryMatchResponse();
+                res.setStatus(DirectoryMatchResponse.Status.NOT_FOUND);
+                res.setMessage("No directory entry matched");
+                return res;
+            }
+            if (matches.size() > 1) {
+                DirectoryMatchResponse res = new DirectoryMatchResponse();
+                res.setStatus(DirectoryMatchResponse.Status.AMBIGUOUS);
+                res.setMessage("Multiple directory entries matched: " + matches.size());
+                return res;
+            }
+
+            DirectoryMatchResponse res = matches.get(0);
+            res.setStatus(DirectoryMatchResponse.Status.MATCHED);
+            res.setMessage("Matched directory entry");
+            return res;
+
+        } catch (Exception ex) {
+            DirectoryMatchResponse res = new DirectoryMatchResponse();
+            res.setStatus(DirectoryMatchResponse.Status.ERROR);
+            res.setMessage("Directory lookup error: " + ex.getMessage());
+            return res;
+        }
+    }
+
+    private DirectoryMatchResponse mapMatch(Attributes attrs) throws NamingException, javax.naming.NamingException {
+        DirectoryMatchResponse res = new DirectoryMatchResponse();
+
+        // Common attributes (adaptable)
+        res.setUid(getAttr(attrs, "uid"));
+        res.setEmail(getAttr(attrs, "mail"));
+        res.setFirstName(getAttr(attrs, "givenName"));
+        res.setLastName(getAttr(attrs, "sn"));
+        res.setEmployeeId(getAttr(attrs, "employeeNumber"));
+
+        // Raw attribute map (selected)
+        res.setAttributes(Map.of(
+                "uid", res.getUid(),
+                "mail", res.getEmail(),
+                "givenName", res.getFirstName(),
+                "sn", res.getLastName(),
+                "employeeNumber", res.getEmployeeId()
+        ));
+
+        // DN is not directly in AttributesMapper; if you need DN, use ContextMapper instead.
+        res.setDn(null);
+        return res;
+    }
+
+    private String getAttr(Attributes attrs, String name) throws javax.naming.NamingException {
+        if (attrs == null || attrs.get(name) == null) return null;
+        Object val = attrs.get(name).get();
+        return val == null ? null : String.valueOf(val);
+    }
+
+    private boolean isBlank(String s) {
+        return s == null || s.trim().isEmpty();
+    }
+
+    private DirectoryMatchResponse mockResponse(DirectoryValidationRequest request) {
+        DirectoryMatchResponse res = new DirectoryMatchResponse();
+
+        // Simple deterministic mock:
+        // - if email endsWith "@example.com" -> matched
+        // - else not found
+        if (!isBlank(request.getEmail()) && request.getEmail().toLowerCase().endsWith("@example.com")) {
+            res.setStatus(DirectoryMatchResponse.Status.MATCHED);
+            res.setMessage("Mock match");
+            res.setUid("mockuid");
+            res.setEmail(request.getEmail());
+            res.setFirstName(request.getFirstName() == null ? "Mock" : request.getFirstName());
+            res.setLastName(request.getLastName() == null ? "User" : request.getLastName());
+            res.setEmployeeId(request.getEmployeeId() == null ? "E0001" : request.getEmployeeId());
+            res.setAttributes(Map.of(
+                    "uid", res.getUid(),
+                    "mail", res.getEmail(),
+                    "givenName", res.getFirstName(),
+                    "sn", res.getLastName(),
+                    "employeeNumber", res.getEmployeeId()
+            ));
+            return res;
+        }
+
+        res.setStatus(DirectoryMatchResponse.Status.NOT_FOUND);
+        res.setMessage("Mock not found");
+        return res;
+    }
+}
+```
+
+---
+
+# 6) Controller endpoint
+
+### Update `src/main/java/com/um/springbootprojstructure/controller/AdminUserController.java`
+Add imports:
+```java
+import com.um.springbootprojstructure.dto.DirectoryMatchResponse;
+import com.um.springbootprojstructure.dto.DirectoryValidationRequest;
+import com.um.springbootprojstructure.service.DirectoryValidationService;
+```
+
+Add field + constructor param:
+```java
+private final DirectoryValidationService directoryValidationService;
+
+public AdminUserController(AdminUserService adminUserService,
+                           AdminUserImportService adminUserImportService,
+                           DirectoryValidationService directoryValidationService,
+                           PromptLogService promptLogService) {
+    this.adminUserService = adminUserService;
+    this.adminUserImportService = adminUserImportService;
+    this.directoryValidationService = directoryValidationService;
+    this.promptLogService = promptLogService;
+}
+```
+
+Add endpoint:
+```java
+@PostMapping("/validate-directory")
+public DirectoryMatchResponse validateDirectory(@Valid @RequestBody DirectoryValidationRequest request) {
+    promptLogService.logPrompt("HTTP POST /api/admin/users/validate-directory email=" + request.getEmail());
+    return directoryValidationService.validate(request);
+}
+```
+
+---
+
+# 7) Example request
+
+```bash
+curl -s -X POST http://localhost:8080/api/admin/users/validate-directory \
+  -H "Content-Type: application/json" \
+  -d '{"email":"jane@example.com","firstName":"Jane","lastName":"Doe","employeeId":"E1234"}'
+```
+
+Example response (mock mode):
+```json
+{
+  "status": "MATCHED",
+  "message": "Mock match",
+  "dn": null,
+  "uid": "mockuid",
+  "email": "jane@example.com",
+  "firstName": "Jane",
+  "lastName": "Doe",
+  "employeeId": "E1234",
+  "attributes": {
+    "uid": "mockuid",
+    "mail": "jane@example.com",
+    "givenName": "Jane",
+    "sn": "Doe",
+    "employeeNumber": "E1234"
+  }
+}
+```
+
+---
+
+## Notes / next improvement
+- If you want the response to include **DN** and a richer attribute set, I can switch the LDAP mapping to a `ContextMapper` to read DN.
+- If your directory uses **Active Directory** attributes (`sAMAccountName`, `userPrincipalName`, `objectClass=user`), tell me and I’ll adjust filters and mappings.
+
+Also: do you want this endpoint to validate **one user at a time** (current) or accept a **batch** of imported records?
+user
+The system shall provide PUT /api/admin/accounts/password-rules to configure account password rules used during registration, password change, and password reset, and shall provide GET /api/admin/accounts/password-rules to retrieve the active rules.
+assistant
+## Add password rules config (GET/PUT `/api/admin/accounts/password-rules`)
+
+This implements an admin-managed password policy stored in H2, used later by registration/password change/reset flows.
+
+---
+
+# 1) Entity + repository (persist active rules)
+
+### `src/main/java/com/um/springbootprojstructure/entity/PasswordRules.java`
+```java
+package com.um.springbootprojstructure.entity;
+
+import jakarta.persistence.*;
+
+import java.time.OffsetDateTime;
+
+@Entity
+@Table(name = "password_rules")
+public class PasswordRules {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(nullable = false)
+    private int minLength = 8;
+
+    @Column(nullable = false)
+    private boolean requireUppercase = true;
+
+    @Column(nullable = false)
+    private boolean requireLowercase = true;
+
+    @Column(nullable = false)
+    private boolean requireDigit = true;
+
+    @Column(nullable = false)
+    private boolean requireSpecial = false;
+
+    @Column(nullable = false)
+    private int minSpecial = 1;
+
+    @Column(nullable = false)
+    private int maxLength = 128;
+
+    @Column(nullable = false)
+    private boolean enabled = true;
+
+    @Column(nullable = false, updatable = false)
+    private OffsetDateTime createdAt;
+
+    @Column(nullable = false)
+    private OffsetDateTime updatedAt;
+
+    @PrePersist
+    void prePersist() {
+        OffsetDateTime now = OffsetDateTime.now();
+        createdAt = now;
+        updatedAt = now;
+    }
+
+    @PreUpdate
+    void preUpdate() {
+        updatedAt = OffsetDateTime.now();
+    }
+
+    public PasswordRules() {}
+
+    // getters/setters
+    public Long getId() { return id; }
+
+    public int getMinLength() { return minLength; }
+    public void setMinLength(int minLength) { this.minLength = minLength; }
+
+    public boolean isRequireUppercase() { return requireUppercase; }
+    public void setRequireUppercase(boolean requireUppercase) { this.requireUppercase = requireUppercase; }
+
+    public boolean isRequireLowercase() { return requireLowercase; }
+    public void setRequireLowercase(boolean requireLowercase) { this.requireLowercase = requireLowercase; }
+
+    public boolean isRequireDigit() { return requireDigit; }
+    public void setRequireDigit(boolean requireDigit) { this.requireDigit = requireDigit; }
+
+    public boolean isRequireSpecial() { return requireSpecial; }
+    public void setRequireSpecial(boolean requireSpecial) { this.requireSpecial = requireSpecial; }
+
+    public int getMinSpecial() { return minSpecial; }
+    public void setMinSpecial(int minSpecial) { this.minSpecial = minSpecial; }
+
+    public int getMaxLength() { return maxLength; }
+    public void setMaxLength(int maxLength) { this.maxLength = maxLength; }
+
+    public boolean isEnabled() { return enabled; }
+    public void setEnabled(boolean enabled) { this.enabled = enabled; }
+
+    public OffsetDateTime getCreatedAt() { return createdAt; }
+    public OffsetDateTime getUpdatedAt() { return updatedAt; }
+}
+```
+
+### `src/main/java/com/um/springbootprojstructure/repository/PasswordRulesRepository.java`
+```java
+package com.um.springbootprojstructure.repository;
+
+import com.um.springbootprojstructure.entity.PasswordRules;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+public interface PasswordRulesRepository extends JpaRepository<PasswordRules, Long> {
+}
+```
+
+> We’ll store **exactly one** active row (latest). Service will “get latest else create defaults”.
+
+---
+
+# 2) DTOs
+
+### `src/main/java/com/um/springbootprojstructure/dto/PasswordRulesRequest.java`
+```java
+package com.um.springbootprojstructure.dto;
+
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
+
+public class PasswordRulesRequest {
+
+    @Min(4) @Max(256)
+    private int minLength = 8;
+
+    @Min(4) @Max(256)
+    private int maxLength = 128;
+
+    private boolean requireUppercase = true;
+    private boolean requireLowercase = true;
+    private boolean requireDigit = true;
+
+    private boolean requireSpecial = false;
+
+    @Min(0) @Max(10)
+    private int minSpecial = 1;
+
+    private boolean enabled = true;
+
+    public PasswordRulesRequest() {}
+
+    public int getMinLength() { return minLength; }
+    public void setMinLength(int minLength) { this.minLength = minLength; }
+
+    public int getMaxLength() { return maxLength; }
+    public void setMaxLength(int maxLength) { this.maxLength = maxLength; }
+
+    public boolean isRequireUppercase() { return requireUppercase; }
+    public void setRequireUppercase(boolean requireUppercase) { this.requireUppercase = requireUppercase; }
+
+    public boolean isRequireLowercase() { return requireLowercase; }
+    public void setRequireLowercase(boolean requireLowercase) { this.requireLowercase = requireLowercase; }
+
+    public boolean isRequireDigit() { return requireDigit; }
+    public void setRequireDigit(boolean requireDigit) { this.requireDigit = requireDigit; }
+
+    public boolean isRequireSpecial() { return requireSpecial; }
+    public void setRequireSpecial(boolean requireSpecial) { this.requireSpecial = requireSpecial; }
+
+    public int getMinSpecial() { return minSpecial; }
+    public void setMinSpecial(int minSpecial) { this.minSpecial = minSpecial; }
+
+    public boolean isEnabled() { return enabled; }
+    public void setEnabled(boolean enabled) { this.enabled = enabled; }
+}
+```
+
+### `src/main/java/com/um/springbootprojstructure/dto/PasswordRulesResponse.java`
+```java
+package com.um.springbootprojstructure.dto;
+
+public class PasswordRulesResponse {
+
+    private int minLength;
+    private int maxLength;
+    private boolean requireUppercase;
+    private boolean requireLowercase;
+    private boolean requireDigit;
+    private boolean requireSpecial;
+    private int minSpecial;
+    private boolean enabled;
+
+    public PasswordRulesResponse() {}
+
+    public PasswordRulesResponse(int minLength, int maxLength,
+                                 boolean requireUppercase, boolean requireLowercase,
+                                 boolean requireDigit, boolean requireSpecial,
+                                 int minSpecial, boolean enabled) {
+        this.minLength = minLength;
+        this.maxLength = maxLength;
+        this.requireUppercase = requireUppercase;
+        this.requireLowercase = requireLowercase;
+        this.requireDigit = requireDigit;
+        this.requireSpecial = requireSpecial;
+        this.minSpecial = minSpecial;
+        this.enabled = enabled;
+    }
+
+    public int getMinLength() { return minLength; }
+    public void setMinLength(int minLength) { this.minLength = minLength; }
+
+    public int getMaxLength() { return maxLength; }
+    public void setMaxLength(int maxLength) { this.maxLength = maxLength; }
+
+    public boolean isRequireUppercase() { return requireUppercase; }
+    public void setRequireUppercase(boolean requireUppercase) { this.requireUppercase = requireUppercase; }
+
+    public boolean isRequireLowercase() { return requireLowercase; }
+    public void setRequireLowercase(boolean requireLowercase) { this.requireLowercase = requireLowercase; }
+
+    public boolean isRequireDigit() { return requireDigit; }
+    public void setRequireDigit(boolean requireDigit) { this.requireDigit = requireDigit; }
+
+    public boolean isRequireSpecial() { return requireSpecial; }
+    public void setRequireSpecial(boolean requireSpecial) { this.requireSpecial = requireSpecial; }
+
+    public int getMinSpecial() { return minSpecial; }
+    public void setMinSpecial(int minSpecial) { this.minSpecial = minSpecial; }
+
+    public boolean isEnabled() { return enabled; }
+    public void setEnabled(boolean enabled) { this.enabled = enabled; }
+}
+```
+
+---
+
+# 3) Mapper
+
+### `src/main/java/com/um/springbootprojstructure/mapper/PasswordRulesMapper.java`
+```java
+package com.um.springbootprojstructure.mapper;
+
+import com.um.springbootprojstructure.dto.PasswordRulesRequest;
+import com.um.springbootprojstructure.dto.PasswordRulesResponse;
+import com.um.springbootprojstructure.entity.PasswordRules;
+
+public class PasswordRulesMapper {
+
+    private PasswordRulesMapper() {}
+
+    public static PasswordRulesResponse toResponse(PasswordRules e) {
+        return new PasswordRulesResponse(
+                e.getMinLength(),
+                e.getMaxLength(),
+                e.isRequireUppercase(),
+                e.isRequireLowercase(),
+                e.isRequireDigit(),
+                e.isRequireSpecial(),
+                e.getMinSpecial(),
+                e.isEnabled()
+        );
+    }
+
+    public static void apply(PasswordRules target, PasswordRulesRequest req) {
+        target.setMinLength(req.getMinLength());
+        target.setMaxLength(req.getMaxLength());
+        target.setRequireUppercase(req.isRequireUppercase());
+        target.setRequireLowercase(req.isRequireLowercase());
+        target.setRequireDigit(req.isRequireDigit());
+        target.setRequireSpecial(req.isRequireSpecial());
+        target.setMinSpecial(req.getMinSpecial());
+        target.setEnabled(req.isEnabled());
+    }
+}
+```
+
+---
+
+# 4) Service
+
+### `src/main/java/com/um/springbootprojstructure/service/PasswordRulesService.java`
+```java
+package com.um.springbootprojstructure.service;
+
+import com.um.springbootprojstructure.dto.PasswordRulesRequest;
+import com.um.springbootprojstructure.dto.PasswordRulesResponse;
+
+public interface PasswordRulesService {
+    PasswordRulesResponse getActiveRules();
+    PasswordRulesResponse updateRules(PasswordRulesRequest request);
+}
+```
+
+### `src/main/java/com/um/springbootprojstructure/service/PasswordRulesServiceImpl.java`
+```java
+package com.um.springbootprojstructure.service;
+
+import com.um.springbootprojstructure.dto.PasswordRulesRequest;
+import com.um.springbootprojstructure.dto.PasswordRulesResponse;
+import com.um.springbootprojstructure.entity.PasswordRules;
+import com.um.springbootprojstructure.mapper.PasswordRulesMapper;
+import com.um.springbootprojstructure.repository.PasswordRulesRepository;
+import org.springframework.data.domain.Sort;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+@Service
+@Transactional
+public class PasswordRulesServiceImpl implements PasswordRulesService {
+
+    private final PasswordRulesRepository repo;
+    private final PromptLogService promptLogService;
+
+    public PasswordRulesServiceImpl(PasswordRulesRepository repo, PromptLogService promptLogService) {
+        this.repo = repo;
+        this.promptLogService = promptLogService;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PasswordRulesResponse getActiveRules() {
+        promptLogService.logPrompt("Task: getActivePasswordRules called");
+        PasswordRules rules = getOrCreateDefaults();
+        return PasswordRulesMapper.toResponse(rules);
+    }
+
+    @Override
+    public PasswordRulesResponse updateRules(PasswordRulesRequest request) {
+        promptLogService.logPrompt("Task: updatePasswordRules called");
+
+        if (request.getMinLength() > request.getMaxLength()) {
+            throw new IllegalArgumentException("minLength must be <= maxLength");
+        }
+        if (!request.isRequireSpecial() && request.getMinSpecial() > 0) {
+            // normalize to 0 if special not required
+            request.setMinSpecial(0);
+        }
+        if (request.isRequireSpecial() && request.getMinSpecial() <= 0) {
+            throw new IllegalArgumentException("minSpecial must be > 0 when requireSpecial is true");
+        }
+
+        // Keep a single row by updating existing (latest) if present, else create.
+        PasswordRules rules = getLatestOrNull();
+        if (rules == null) rules = new PasswordRules();
+
+        PasswordRulesMapper.apply(rules, request);
+        PasswordRules saved = repo.save(rules);
+
+        return PasswordRulesMapper.toResponse(saved);
+    }
+
+    private PasswordRules getOrCreateDefaults() {
+        PasswordRules latest = getLatestOrNull();
+        if (latest != null) return latest;
+        return repo.save(new PasswordRules());
+    }
+
+    private PasswordRules getLatestOrNull() {
+        return repo.findAll(Sort.by(Sort.Direction.DESC, "id"))
+                .stream()
+                .findFirst()
+                .orElse(null);
+    }
+}
+```
+
+---
+
+# 5) Admin controller
+
+### `src/main/java/com/um/springbootprojstructure/controller/AdminAccountController.java`
+```java
+package com.um.springbootprojstructure.controller;
+
+import com.um.springbootprojstructure.dto.PasswordRulesRequest;
+import com.um.springbootprojstructure.dto.PasswordRulesResponse;
+import com.um.springbootprojstructure.service.PasswordRulesService;
+import com.um.springbootprojstructure.service.PromptLogService;
+import jakarta.validation.Valid;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/api/admin/accounts")
+public class AdminAccountController {
+
+    private final PasswordRulesService passwordRulesService;
+    private final PromptLogService promptLogService;
+
+    public AdminAccountController(PasswordRulesService passwordRulesService, PromptLogService promptLogService) {
+        this.passwordRulesService = passwordRulesService;
+        this.promptLogService = promptLogService;
+    }
+
+    @GetMapping("/password-rules")
+    public PasswordRulesResponse getRules() {
+        promptLogService.logPrompt("HTTP GET /api/admin/accounts/password-rules");
+        return passwordRulesService.getActiveRules();
+    }
+
+    @PutMapping("/password-rules")
+    public PasswordRulesResponse updateRules(@Valid @RequestBody PasswordRulesRequest request) {
+        promptLogService.logPrompt("HTTP PUT /api/admin/accounts/password-rules");
+        return passwordRulesService.updateRules(request);
+    }
+}
+```
+
+---
+
+# 6) Example requests
+
+### GET
+```bash
+curl -s http://localhost:8080/api/admin/accounts/password-rules
+```
+
+### PUT
+```bash
+curl -s -X PUT http://localhost:8080/api/admin/accounts/password-rules \
+  -H "Content-Type: application/json" \
+  -d '{
+    "minLength": 12,
+    "maxLength": 128,
+    "requireUppercase": true,
+    "requireLowercase": true,
+    "requireDigit": true,
+    "requireSpecial": true,
+    "minSpecial": 1,
+    "enabled": true
+  }'
+```
+
+---
+
+## Next step (so these rules are actually enforced)
+If you want, I can add:
+- `PasswordPolicyValidator` service that checks a plaintext password against active rules
+- integrate it into registration / change password / reset password flows once you define those endpoints.
+
+Also: should admin endpoints be secured to `ADMIN` now? (requires finishing JWT auth filter + method/route security).
+user
+Registration, password change, and password reset confirmation shall apply the active account password rules and return a deterministic JSON response indicating acceptance or rejection.
+assistant
+Below is a complete implementation of **deterministic password rule validation** applied to:
+
+- **Registration**
+- **Password change**
+- **Password reset confirmation**
+
+It returns a consistent JSON structure indicating **ACCEPTED** or **REJECTED** with stable reason codes.
+
+This builds on your existing `PasswordRulesService` + `PasswordRules` persistence.
+
+---
+
+## 1) DTOs: deterministic validation result
+
+### `src/main/java/com/um/springbootprojstructure/dto/PasswordValidationResultResponse.java`
+```java
+package com.um.springbootprojstructure.dto;
+
+import java.util.ArrayList;
+import java.util.List;
+
+public class PasswordValidationResultResponse {
+
+    public enum Status { ACCEPTED, REJECTED }
+
+    private Status status;
+    private List<String> codes = new ArrayList<>();     // deterministic machine-readable codes
+    private List<String> messages = new ArrayList<>();  // human-readable (still deterministic wording)
+
+    public PasswordValidationResultResponse() {}
+
+    public PasswordValidationResultResponse(Status status) {
+        this.status = status;
+    }
+
+    public static PasswordValidationResultResponse accepted() {
+        return new PasswordValidationResultResponse(Status.ACCEPTED);
+    }
+
+    public static PasswordValidationResultResponse rejected(List<String> codes, List<String> messages) {
+        PasswordValidationResultResponse r = new PasswordValidationResultResponse(Status.REJECTED);
+        r.setCodes(codes);
+        r.setMessages(messages);
+        return r;
+    }
+
+    public Status getStatus() { return status; }
+    public void setStatus(Status status) { this.status = status; }
+
+    public List<String> getCodes() { return codes; }
+    public void setCodes(List<String> codes) { this.codes = codes; }
+
+    public List<String> getMessages() { return messages; }
+    public void setMessages(List<String> messages) { this.messages = messages; }
+}
+```
+
+---
+
+## 2) Service: PasswordPolicyValidator (enforces active rules)
+
+### `src/main/java/com/um/springbootprojstructure/service/PasswordPolicyValidator.java`
+```java
+package com.um.springbootprojstructure.service;
+
+import com.um.springbootprojstructure.dto.PasswordRulesResponse;
+import com.um.springbootprojstructure.dto.PasswordValidationResultResponse;
+import org.springframework.stereotype.Service;
+
+import java.util.ArrayList;
+import java.util.List;
+
+@Service
+public class PasswordPolicyValidator {
+
+    private final PasswordRulesService passwordRulesService;
+
+    public PasswordPolicyValidator(PasswordRulesService passwordRulesService) {
+        this.passwordRulesService = passwordRulesService;
+    }
+
+    /**
+     * Deterministic response:
+     * - Always returns ACCEPTED or REJECTED
+     * - Rejections include stable codes/messages in a stable order
+     */
+    public PasswordValidationResultResponse validate(String password) {
+        PasswordRulesResponse rules = passwordRulesService.getActiveRules();
+
+        List<String> codes = new ArrayList<>();
+        List<String> messages = new ArrayList<>();
+
+        if (password == null) password = "";
+
+        // If rules disabled: accept all passwords (still deterministic)
+        if (!rules.isEnabled()) {
+            return PasswordValidationResultResponse.accepted();
+        }
+
+        int len = password.length();
+        if (len < rules.getMinLength()) {
+            codes.add("MIN_LENGTH");
+            messages.add("Password length must be at least " + rules.getMinLength());
+        }
+        if (len > rules.getMaxLength()) {
+            codes.add("MAX_LENGTH");
+            messages.add("Password length must be at most " + rules.getMaxLength());
+        }
+
+        int upper = 0, lower = 0, digit = 0, special = 0;
+        for (int i = 0; i < password.length(); i++) {
+            char c = password.charAt(i);
+            if (Character.isUpperCase(c)) upper++;
+            else if (Character.isLowerCase(c)) lower++;
+            else if (Character.isDigit(c)) digit++;
+            else special++;
+        }
+
+        if (rules.isRequireUppercase() && upper < 1) {
+            codes.add("REQUIRE_UPPERCASE");
+            messages.add("Password must contain at least 1 uppercase character");
+        }
+        if (rules.isRequireLowercase() && lower < 1) {
+            codes.add("REQUIRE_LOWERCASE");
+            messages.add("Password must contain at least 1 lowercase character");
+        }
+        if (rules.isRequireDigit() && digit < 1) {
+            codes.add("REQUIRE_DIGIT");
+            messages.add("Password must contain at least 1 digit");
+        }
+
+        if (rules.isRequireSpecial()) {
+            int minSpecial = Math.max(1, rules.getMinSpecial());
+            if (special < minSpecial) {
+                codes.add("REQUIRE_SPECIAL");
+                messages.add("Password must contain at least " + minSpecial + " special character(s)");
+            }
+        }
+
+        if (codes.isEmpty()) {
+            return PasswordValidationResultResponse.accepted();
+        }
+        return PasswordValidationResultResponse.rejected(codes, messages);
+    }
+}
+```
+
+---
+
+## 3) Entities + repositories for reset flow (confirmation step)
+
+We need a “reset token” to confirm a reset. This adds a minimal token table.
+
+### `src/main/java/com/um/springbootprojstructure/entity/PasswordResetToken.java`
+```java
+package com.um.springbootprojstructure.entity;
+
+import jakarta.persistence.*;
+
+import java.time.OffsetDateTime;
+
+@Entity
+@Table(name = "password_reset_tokens", indexes = {
+        @Index(name = "idx_prt_token", columnList = "token", unique = true),
+        @Index(name = "idx_prt_user_id", columnList = "userId")
+})
+public class PasswordResetToken {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(nullable = false, unique = true, length = 64)
+    private String token;
+
+    @Column(nullable = false)
+    private Long userId;
+
+    @Column(nullable = false)
+    private boolean used = false;
+
+    @Column(nullable = false, updatable = false)
+    private OffsetDateTime createdAt;
+
+    @Column(nullable = false)
+    private OffsetDateTime expiresAt;
+
+    @Column(nullable = true)
+    private OffsetDateTime usedAt;
+
+    @PrePersist
+    void prePersist() {
+        createdAt = OffsetDateTime.now();
+    }
+
+    public PasswordResetToken() {}
+
+    public PasswordResetToken(String token, Long userId, OffsetDateTime expiresAt) {
+        this.token = token;
+        this.userId = userId;
+        this.expiresAt = expiresAt;
+    }
+
+    public Long getId() { return id; }
+
+    public String getToken() { return token; }
+    public void setToken(String token) { this.token = token; }
+
+    public Long getUserId() { return userId; }
+    public void setUserId(Long userId) { this.userId = userId; }
+
+    public boolean isUsed() { return used; }
+    public void setUsed(boolean used) { this.used = used; }
+
+    public OffsetDateTime getCreatedAt() { return createdAt; }
+
+    public OffsetDateTime getExpiresAt() { return expiresAt; }
+    public void setExpiresAt(OffsetDateTime expiresAt) { this.expiresAt = expiresAt; }
+
+    public OffsetDateTime getUsedAt() { return usedAt; }
+    public void setUsedAt(OffsetDateTime usedAt) { this.usedAt = usedAt; }
+}
+```
+
+### `src/main/java/com/um/springbootprojstructure/repository/PasswordResetTokenRepository.java`
+```java
+package com.um.springbootprojstructure.repository;
+
+import com.um.springbootprojstructure.entity.PasswordResetToken;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+import java.util.Optional;
+
+public interface PasswordResetTokenRepository extends JpaRepository<PasswordResetToken, Long> {
+    Optional<PasswordResetToken> findByToken(String token);
+}
+```
+
+---
+
+## 4) Auth-related DTOs for registration/change/reset-confirm
+
+### `src/main/java/com/um/springbootprojstructure/dto/RegisterRequest.java`
+```java
+package com.um.springbootprojstructure.dto;
+
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
+
+public class RegisterRequest {
+
+    @NotBlank @Size(max = 80)
+    private String firstName;
+
+    @NotBlank @Size(max = 80)
+    private String lastName;
+
+    @NotBlank @Email @Size(max = 180)
+    private String email;
+
+    @NotBlank
+    private String password;
+
+    public RegisterRequest() {}
+
+    public String getFirstName() { return firstName; }
+    public void setFirstName(String firstName) { this.firstName = firstName; }
+
+    public String getLastName() { return lastName; }
+    public void setLastName(String lastName) { this.lastName = lastName; }
+
+    public String getEmail() { return email; }
+    public void setEmail(String email) { this.email = email; }
+
+    public String getPassword() { return password; }
+    public void setPassword(String password) { this.password = password; }
+}
+```
+
+### `src/main/java/com/um/springbootprojstructure/dto/RegisterResponse.java`
+```java
+package com.um.springbootprojstructure.dto;
+
+public class RegisterResponse {
+    private String publicRef;
+    private String email;
+
+    public RegisterResponse() {}
+
+    public RegisterResponse(String publicRef, String email) {
+        this.publicRef = publicRef;
+        this.email = email;
+    }
+
+    public String getPublicRef() { return publicRef; }
+    public void setPublicRef(String publicRef) { this.publicRef = publicRef; }
+
+    public String getEmail() { return email; }
+    public void setEmail(String email) { this.email = email; }
+}
+```
+
+### `src/main/java/com/um/springbootprojstructure/dto/ChangePasswordRequest.java`
+```java
+package com.um.springbootprojstructure.dto;
+
+import jakarta.validation.constraints.NotBlank;
+
+public class ChangePasswordRequest {
+
+    @NotBlank
+    private String currentPassword;
+
+    @NotBlank
+    private String newPassword;
+
+    public ChangePasswordRequest() {}
+
+    public String getCurrentPassword() { return currentPassword; }
+    public void setCurrentPassword(String currentPassword) { this.currentPassword = currentPassword; }
+
+    public String getNewPassword() { return newPassword; }
+    public void setNewPassword(String newPassword) { this.newPassword = newPassword; }
+}
+```
+
+### `src/main/java/com/um/springbootprojstructure/dto/PasswordResetConfirmRequest.java`
+```java
+package com.um.springbootprojstructure.dto;
+
+import jakarta.validation.constraints.NotBlank;
+
+public class PasswordResetConfirmRequest {
+
+    @NotBlank
+    private String token;
+
+    @NotBlank
+    private String newPassword;
+
+    public PasswordResetConfirmRequest() {}
+
+    public String getToken() { return token; }
+    public void setToken(String token) { this.token = token; }
+
+    public String getNewPassword() { return newPassword; }
+    public void setNewPassword(String newPassword) { this.newPassword = newPassword; }
+}
+```
+
+### `src/main/java/com/um/springbootprojstructure/dto/GenericActionResponse.java`
+```java
+package com.um.springbootprojstructure.dto;
+
+public class GenericActionResponse {
+    private boolean success;
+    private String message;
+
+    public GenericActionResponse() {}
+
+    public GenericActionResponse(boolean success, String message) {
+        this.success = success;
+        this.message = message;
+    }
+
+    public boolean isSuccess() { return success; }
+    public void setSuccess(boolean success) { this.success = success; }
+
+    public String getMessage() { return message; }
+    public void setMessage(String message) { this.message = message; }
+}
+```
+
+---
+
+## 5) Service: AccountAuthService (registration/change/reset-confirm)
+
+### `src/main/java/com/um/springbootprojstructure/service/AccountAuthService.java`
+```java
+package com.um.springbootprojstructure.service;
+
+import com.um.springbootprojstructure.dto.*;
+
+public interface AccountAuthService {
+    RegisterResponse register(RegisterRequest request);
+    GenericActionResponse changePassword(String email, ChangePasswordRequest request);
+    GenericActionResponse confirmPasswordReset(PasswordResetConfirmRequest request);
+}
+```
+
+### `src/main/java/com/um/springbootprojstructure/service/AccountAuthServiceImpl.java`
+```java
+package com.um.springbootprojstructure.service;
+
+import com.um.springbootprojstructure.dto.*;
+import com.um.springbootprojstructure.entity.PasswordResetToken;
+import com.um.springbootprojstructure.entity.Role;
+import com.um.springbootprojstructure.entity.User;
+import com.um.springbootprojstructure.repository.PasswordResetTokenRepository;
+import com.um.springbootprojstructure.repository.UserRepository;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.security.SecureRandom;
+import java.time.OffsetDateTime;
+import java.util.HexFormat;
+
+@Service
+@Transactional
+public class AccountAuthServiceImpl implements AccountAuthService {
+
+    private final UserRepository userRepository;
+    private final PasswordEncoder passwordEncoder;
+    private final PasswordPolicyValidator passwordPolicyValidator;
+    private final PasswordResetTokenRepository passwordResetTokenRepository;
+    private final PromptLogService promptLogService;
+
+    public AccountAuthServiceImpl(UserRepository userRepository,
+                                  PasswordEncoder passwordEncoder,
+                                  PasswordPolicyValidator passwordPolicyValidator,
+                                  PasswordResetTokenRepository passwordResetTokenRepository,
+                                  PromptLogService promptLogService) {
+        this.userRepository = userRepository;
+        this.passwordEncoder = passwordEncoder;
+        this.passwordPolicyValidator = passwordPolicyValidator;
+        this.passwordResetTokenRepository = passwordResetTokenRepository;
+        this.promptLogService = promptLogService;
+    }
+
+    @Override
+    public RegisterResponse register(RegisterRequest request) {
+        promptLogService.logPrompt("Task: register called email=" + request.getEmail());
+
+        PasswordValidationResultResponse pv = passwordPolicyValidator.validate(request.getPassword());
+        if (pv.getStatus() == PasswordValidationResultResponse.Status.REJECTED) {
+            // deterministic rejection
+            throw new IllegalArgumentException("PASSWORD_RULES_REJECTED: " + String.join(",", pv.getCodes()));
+        }
+
+        if (userRepository.existsByEmail(request.getEmail())) {
+            throw new IllegalArgumentException("Email already exists: " + request.getEmail());
+        }
+
+        User u = new User();
+        u.setFirstName(request.getFirstName());
+        u.setLastName(request.getLastName());
+        u.setEmail(request.getEmail());
+        u.setRole(Role.USER);
+        u.setActive(true);
+        u.setPasswordHash(passwordEncoder.encode(request.getPassword()));
+
+        User saved = userRepository.save(u);
+        return new RegisterResponse(saved.getPublicRef(), saved.getEmail());
+    }
+
+    @Override
+    public GenericActionResponse changePassword(String email, ChangePasswordRequest request) {
+        promptLogService.logPrompt("Task: changePassword called email=" + email);
+
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new IllegalArgumentException("User not found: " + email));
+
+        if (!passwordEncoder.matches(request.getCurrentPassword(), user.getPasswordHash())) {
+            throw new IllegalArgumentException("Current password is incorrect");
+        }
+
+        PasswordValidationResultResponse pv = passwordPolicyValidator.validate(request.getNewPassword());
+        if (pv.getStatus() == PasswordValidationResultResponse.Status.REJECTED) {
+            throw new IllegalArgumentException("PASSWORD_RULES_REJECTED: " + String.join(",", pv.getCodes()));
+        }
+
+        user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
+        userRepository.save(user);
+
+        return new GenericActionResponse(true, "Password changed");
+    }
+
+    @Override
+    public GenericActionResponse confirmPasswordReset(PasswordResetConfirmRequest request) {
+        promptLogService.logPrompt("Task: confirmPasswordReset called");
+
+        PasswordValidationResultResponse pv = passwordPolicyValidator.validate(request.getNewPassword());
+        if (pv.getStatus() == PasswordValidationResultResponse.Status.REJECTED) {
+            throw new IllegalArgumentException("PASSWORD_RULES_REJECTED: " + String.join(",", pv.getCodes()));
+        }
+
+        PasswordResetToken token = passwordResetTokenRepository.findByToken(request.getToken())
+                .orElseThrow(() -> new IllegalArgumentException("Invalid reset token"));
+
+        if (token.isUsed()) {
+            throw new IllegalArgumentException("Reset token already used");
+        }
+        if (token.getExpiresAt().isBefore(OffsetDateTime.now())) {
+            throw new IllegalArgumentException("Reset token expired");
+        }
+
+        User user = userRepository.findById(token.getUserId())
+                .orElseThrow(() -> new IllegalArgumentException("User not found for token"));
+
+        user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
+        userRepository.save(user);
+
+        token.setUsed(true);
+        token.setUsedAt(OffsetDateTime.now());
+        passwordResetTokenRepository.save(token);
+
+        return new GenericActionResponse(true, "Password reset confirmed");
+    }
+
+    // Helper you can use later when you implement "request password reset"
+    public PasswordResetToken createResetTokenForUser(User user, long ttlMinutes) {
+        byte[] buf = new byte[32];
+        new SecureRandom().nextBytes(buf);
+        String tokenValue = HexFormat.of().formatHex(buf);
+
+        PasswordResetToken token = new PasswordResetToken(
+                tokenValue,
+                user.getId(),
+                OffsetDateTime.now().plusMinutes(ttlMinutes)
+        );
+        return passwordResetTokenRepository.save(token);
+    }
+}
+```
+
+> Note: For deterministic password-rule rejection in the HTTP response (not exception text), see the exception handler section below.
+
+---
+
+## 6) Controller: endpoints
+
+### `src/main/java/com/um/springbootprojstructure/controller/AccountController.java`
+```java
+package com.um.springbootprojstructure.controller;
+
+import com.um.springbootprojstructure.dto.*;
+import com.um.springbootprojstructure.service.AccountAuthService;
+import com.um.springbootprojstructure.service.PasswordPolicyValidator;
+import com.um.springbootprojstructure.service.PromptLogService;
+import jakarta.validation.Valid;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/api/accounts")
+public class AccountController {
+
+    private final AccountAuthService accountAuthService;
+    private final PasswordPolicyValidator passwordPolicyValidator;
+    private final PromptLogService promptLogService;
+
+    public AccountController(AccountAuthService accountAuthService,
+                             PasswordPolicyValidator passwordPolicyValidator,
+                             PromptLogService promptLogService) {
+        this.accountAuthService = accountAuthService;
+        this.passwordPolicyValidator = passwordPolicyValidator;
+        this.promptLogService = promptLogService;
+    }
+
+    /**
+     * Registration applies active password rules.
+     * Deterministic response: return ACCEPTED/REJECTED via /password/validate OR via exception handler below.
+     */
+    @PostMapping("/register")
+    public RegisterResponse register(@Valid @RequestBody RegisterRequest request) {
+        promptLogService.logPrompt("HTTP POST /api/accounts/register email=" + request.getEmail());
+        return accountAuthService.register(request);
+    }
+
+    /**
+     * Deterministic validation endpoint (useful for clients).
+     * Not required explicitly, but ensures deterministic JSON for rule acceptance/rejection.
+     */
+    @PostMapping("/password/validate")
+    public PasswordValidationResultResponse validatePassword(@RequestBody(required = false) String password) {
+        promptLogService.logPrompt("HTTP POST /api/accounts/password/validate");
+        return passwordPolicyValidator.validate(password);
+    }
+
+    /**
+     * Change password applies active password rules.
+     * For now uses email as "authenticated context placeholder".
+     * Once JWT filter is added, we should use SecurityContext to get current user.
+     */
+    @PostMapping("/password/change")
+    public GenericActionResponse changePassword(@RequestParam("email") String email,
+                                               @Valid @RequestBody ChangePasswordRequest request) {
+        promptLogService.logPrompt("HTTP POST /api/accounts/password/change email=" + email);
+        return accountAuthService.changePassword(email, request);
+    }
+
+    /**
+     * Password reset confirmation applies active password rules.
+     */
+    @PostMapping("/password/reset/confirm")
+    public GenericActionResponse confirmReset(@Valid @RequestBody PasswordResetConfirmRequest request) {
+        promptLogService.logPrompt("HTTP POST /api/accounts/password/reset/confirm");
+        return accountAuthService.confirmPasswordReset(request);
+    }
+}
+```
+
+### Important note about authentication
+`/password/change` should normally require authentication and derive the user from the JWT/session, not `?email=`. Since your JWT authorization filter is not implemented yet, this is a placeholder. If you tell me to “secure endpoints now”, I’ll:
+- add a JWT auth filter
+- set `/api/accounts/password/change` to use the authenticated principal’s email
+
+---
+
+## 7) Deterministic JSON response for acceptance/rejection
+
+Right now, password failures throw `IllegalArgumentException`. We’ll add a deterministic handler that returns the `PasswordValidationResultResponse` with codes/messages.
+
+### Update `src/main/java/com/um/springbootprojstructure/config/GlobalExceptionHandler.java`
+Replace your existing `IllegalArgumentException` handler with this (keeps deterministic behavior):
+
+```java
+package com.um.springbootprojstructure.config;
+
+import com.um.springbootprojstructure.dto.PasswordValidationResultResponse;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+
+import java.time.OffsetDateTime;
+import java.util.*;
+
+@RestControllerAdvice
+public class GlobalExceptionHandler {
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<Map<String, Object>> handleIllegalArgument(IllegalArgumentException ex) {
+
+        // Deterministic password rules rejection:
+        // message format: "PASSWORD_RULES_REJECTED: CODE1,CODE2"
+        if (ex.getMessage() != null && ex.getMessage().startsWith("PASSWORD_RULES_REJECTED:")) {
+            String codesPart = ex.getMessage().substring("PASSWORD_RULES_REJECTED:".length()).trim();
+
+            List<String> codes = codesPart.isBlank()
+                    ? List.of()
+                    : Arrays.stream(codesPart.split(",")).map(String::trim).filter(s -> !s.isEmpty()).toList();
+
+            // Provide deterministic messages for each code:
+            List<String> messages = codes.stream().map(GlobalExceptionHandler::messageForCode).toList();
+
+            PasswordValidationResultResponse body =
+                    PasswordValidationResultResponse.rejected(new ArrayList<>(codes), new ArrayList<>(messages));
+
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(new LinkedHashMap<>(Map.of(
+                    "timestamp", OffsetDateTime.now().toString(),
+                    "error", "PasswordRejected",
+                    "validation", body
+            )));
+        }
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("timestamp", OffsetDateTime.now().toString());
+        body.put("error", "Bad Request");
+        body.put("message", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(body);
+    }
+
+    private static String messageForCode(String code) {
+        return switch (code) {
+            case "MIN_LENGTH" -> "Password is too short";
+            case "MAX_LENGTH" -> "Password is too long";
+            case "REQUIRE_UPPERCASE" -> "Password must contain an uppercase character";
+            case "REQUIRE_LOWERCASE" -> "Password must contain a lowercase character";
+            case "REQUIRE_DIGIT" -> "Password must contain a digit";
+            case "REQUIRE_SPECIAL" -> "Password must contain a special character";
+            default -> "Password does not meet policy requirements";
+        };
+    }
+}
+```
+
+This makes password-rule rejection deterministic in JSON.
+
+---
+
+## 8) Example deterministic responses
+
+### Accepted
+If rules pass:
+- registration returns 200/201 with account info
+- change/reset confirm returns `{ success: true, ... }`
+
+### Rejected (deterministic)
+If password fails, e.g. too short and missing digit:
+```json
+{
+  "timestamp": "2026-03-23T12:00:00Z",
+  "error": "PasswordRejected",
+  "validation": {
+    "status": "REJECTED",
+    "codes": ["MIN_LENGTH", "REQUIRE_DIGIT"],
+    "messages": ["Password is too short", "Password must contain a digit"]
+  }
+}
+```
+
+---
+
+## Next: wire these rules into *password reset request* and add JWT security
+You asked for “password reset confirmation” only (implemented). If you want the full reset flow, next is:
+- `POST /api/accounts/password/reset/request` (creates token; email out-of-scope)
+- and securing change-password via JWT principal.
+
+Tell me:
+1) should registration return a token pair (access+refresh) immediately, or just create the account?  
+2) do you want “password validate” endpoint kept, or only deterministic responses on the 3 flows?
